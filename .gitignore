@@ -40,3 +40,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Java Test Files ###
+*.class
+
+### Proxy Logs ###
+/tmp/local_proxy.log
