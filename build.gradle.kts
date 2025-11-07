@@ -49,18 +49,11 @@ dependencies {
     testRuntimeOnly("com.fasterxml.jackson.core:jackson-databind:2.17.2")
 }
 
-tasks {
-    named<UpdateDaemonJvm>("updateDaemonJvm") {
-        languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
-    }
-}
+// Daemon JVM configuration removed to use system Java
 
 kotlin {
-    jvmToolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
-    }
+    // jvmToolchain configuration removed to use system Java directly
+    jvmToolchain(21)
 }
 
 tasks.test {
