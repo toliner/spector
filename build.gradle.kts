@@ -52,14 +52,14 @@ dependencies {
 tasks {
     named<UpdateDaemonJvm>("updateDaemonJvm") {
         languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
+        // vendor = JvmVendorSpec.ADOPTIUM // Commented out to accept any Java 21 vendor
     }
 }
 
 kotlin {
     jvmToolchain {
         languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
+        // vendor = JvmVendorSpec.ADOPTIUM // Commented out to accept any Java 21 vendor (including OpenJDK)
     }
 }
 
