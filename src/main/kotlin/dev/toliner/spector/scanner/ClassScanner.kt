@@ -5,6 +5,14 @@ import org.objectweb.asm.*
 import org.objectweb.asm.Opcodes.*
 
 /**
+ * Result of scanning a class file, including class info and member info.
+ */
+data class ScanResult(
+    val classInfo: ClassInfo,
+    val members: List<MemberInfo>
+)
+
+/**
  * Scans Java/Kotlin class files using ASM to extract type and member information.
  */
 class ClassScanner {
@@ -15,6 +23,24 @@ class ClassScanner {
             val reader = ClassReader(classBytes)
             reader.accept(visitor, ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG)
             return visitor.buildClassInfo()
+        } catch (e: Exception) {
+            // Handle corrupted or unsupported class files
+            return null
+        }
+    }
+
+    /**
+     * Scans a class file and returns both class info and member info.
+     */
+    fun scanClassWithMembers(classBytes: ByteArray): ScanResult? {
+        val visitor = ClassInfoVisitor()
+        try {
+            val reader = ClassReader(classBytes)
+            reader.accept(visitor, ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG)
+            return ScanResult(
+                classInfo = visitor.buildClassInfo(),
+                members = visitor.getMembers()
+            )
         } catch (e: Exception) {
             // Handle corrupted or unsupported class files
             return null
@@ -156,6 +182,10 @@ class ClassScanner {
                 annotations = annotations,
                 kotlin = if (isKotlinClass) KotlinClassInfo() else null
             )
+        }
+
+        fun getMembers(): List<MemberInfo> {
+            return fields + methods
         }
 
         private fun determineClassKind(access: Int): ClassKind {
