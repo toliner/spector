@@ -9,6 +9,8 @@ import org.objectweb.asm.Opcodes.*
  */
 class ClassScanner {
 
+    typealias MyAnnotationRetention = dev.toliner.spector.model.AnnotationRetention
+
     fun scanClass(classBytes: ByteArray): ClassInfo? {
         val visitor = ClassInfoVisitor()
         try {
@@ -38,7 +40,7 @@ class ClassScanner {
             name: String,
             signature: String?,
             superName: String?,
-            interfaces: Array<out String>?
+            interfaces: Array<String>?
         ) {
             this.internalName = name
             this.access = access
@@ -51,7 +53,7 @@ class ClassScanner {
             if (descriptor == "Lkotlin/Metadata;") {
                 isKotlinClass = true
             }
-            val retention = if (visible) AnnotationRetention.RUNTIME else AnnotationRetention.CLASS
+            val retention = if (visible) MyAnnotationRetention.RUNTIME else MyAnnotationRetention.CLASS
             annotations.add(AnnotationInfo(desc = descriptor, retention = retention))
             return null // For now, we don't parse annotation values
         }
