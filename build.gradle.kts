@@ -52,15 +52,11 @@ dependencies {
 tasks {
     named<UpdateDaemonJvm>("updateDaemonJvm") {
         languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
     }
 }
 
 kotlin {
-    jvmToolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-        vendor = JvmVendorSpec.ADOPTIUM
-    }
+    jvmToolchain(21)
 }
 
 tasks.test {
