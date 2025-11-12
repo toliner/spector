@@ -68,6 +68,37 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+
+    // Exclude integration and slow tests by default for fast feedback
+    systemProperty("kotest.tags.exclude", "integration,slow")
+}
+
+// Task to run only integration tests
+tasks.register<Test>("integrationTest") {
+    description = "Runs integration tests (tagged with 'integration')"
+    group = "verification"
+
+    dependsOn(tasks.testClasses)
+    useJUnitPlatform()
+    systemProperty("kotest.tags.include", "integration")
+
+    // Use the same classpath as the test task
+    testClassesDirs = tasks.test.get().testClassesDirs
+    classpath = tasks.test.get().classpath
+}
+
+// Task to run all tests including integration tests
+tasks.register<Test>("allTests") {
+    description = "Runs all tests including integration and slow tests"
+    group = "verification"
+
+    dependsOn(tasks.testClasses)
+    useJUnitPlatform()
+    // No tag filtering - run everything
+
+    // Use the same classpath as the test task
+    testClassesDirs = tasks.test.get().testClassesDirs
+    classpath = tasks.test.get().classpath
 }
 
 // Tasks to print runtime classpaths for indexing
