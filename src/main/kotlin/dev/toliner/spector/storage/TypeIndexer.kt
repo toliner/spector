@@ -13,7 +13,10 @@ import java.sql.ResultSet
 class TypeIndexer(private val dbPath: String) : AutoCloseable {
 
     private val connection: Connection = DriverManager.getConnection("jdbc:sqlite:$dbPath")
-    private val json = Json { prettyPrint = false }
+    private val json = Json {
+        prettyPrint = false
+        classDiscriminator = "@class"  // Avoid conflict with 'type' property in FieldInfo
+    }
 
     init {
         createTables()

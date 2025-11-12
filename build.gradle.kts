@@ -46,9 +46,10 @@ dependencies {
     testImplementation("io.kotest:kotest-assertions-core:6.0.0")
     testImplementation("io.ktor:ktor-server-test-host:2.3.12")
 
-    // Test runtime dependencies - add some real libraries to scan
-    testRuntimeOnly("com.squareup.okhttp3:okhttp:4.12.0")
-    testRuntimeOnly("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    // Test dependencies for API testing
+    testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
 }
 
 tasks {
