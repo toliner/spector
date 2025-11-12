@@ -24,7 +24,7 @@ class ApiServer(
     private val logger = LoggerFactory.getLogger(ApiServer::class.java)
     private var server: ApplicationEngine? = null
 
-    fun start() {
+    fun start(wait: Boolean = false) {
         server = embeddedServer(Netty, port = port) {
             install(ContentNegotiation) {
                 json(Json {
@@ -33,9 +33,27 @@ class ApiServer(
                 })
             }
 
+            install(ShutDownUrl.ApplicationCallPlugin) {
+                shutDownUrl = "/shutdown"
+                exitCodeSupplier = { 0 }
+            }
+
             routing {
                 get("/health") {
                     call.respond(mapOf("status" to "ok"))
+                }
+
+                // Shutdown endpoint with localhost restriction
+                post("/shutdown") {
+                    val remoteHost = call.request.local.remoteHost
+                    if (remoteHost !in listOf("127.0.0.1", "::1", "localhost")) {
+                        logger.warn("Shutdown attempt from non-localhost: $remoteHost")
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Shutdown only allowed from localhost"))
+                        return@post
+                    }
+
+                    logger.info("Server shutdown initiated from $remoteHost")
+                    call.respond(mapOf("status" to "shutting down"))
                 }
 
                 // List classes in package
@@ -201,7 +219,7 @@ class ApiServer(
             }
         }
 
-        server?.start(wait = false)
+        server?.start(wait = wait)
         logger.info("API server started on port $port")
     }
 

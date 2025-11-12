@@ -49,15 +49,15 @@ fun main(args: Array<String>) {
             val indexer = TypeIndexer(dbPath)
             val server = ApiServer(indexer, port)
 
-            server.start()
+            // Add shutdown hook to clean up resources
+            Runtime.getRuntime().addShutdownHook(Thread {
+                logger.info("Shutdown hook triggered - cleaning up resources")
+                server.stop()
+                indexer.close()
+            })
 
-            logger.info("Server started. Press Enter to stop...")
-            readLine()
-
-            server.stop()
-            indexer.close()
-
-            logger.info("Server stopped")
+            logger.info("Server starting. Send POST request to http://localhost:$port/shutdown to stop")
+            server.start(wait = true)
         }
 
         "index-and-serve" -> {
@@ -79,15 +79,16 @@ fun main(args: Array<String>) {
             logger.info("Indexing complete! Starting API server on port $port")
 
             val server = ApiServer(indexer, port)
-            server.start()
 
-            logger.info("Server started. Press Enter to stop...")
-            readLine()
+            // Add shutdown hook to clean up resources
+            Runtime.getRuntime().addShutdownHook(Thread {
+                logger.info("Shutdown hook triggered - cleaning up resources")
+                server.stop()
+                indexer.close()
+            })
 
-            server.stop()
-            indexer.close()
-
-            logger.info("Server stopped")
+            logger.info("Server starting. Send POST request to http://localhost:$port/shutdown to stop")
+            server.start(wait = true)
         }
 
         "help" -> {
