@@ -3,7 +3,6 @@ package dev.toliner.spector.api
 import dev.toliner.spector.IntegrationTag
 import dev.toliner.spector.SlowTag
 import dev.toliner.spector.indexer.ClasspathIndexer
-import dev.toliner.spector.model.ClassKind
 import dev.toliner.spector.storage.TypeIndexer
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
@@ -13,11 +12,6 @@ import io.kotest.matchers.shouldBe
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.server.application.*
-import io.ktor.server.plugins.contentnegotiation.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
@@ -64,104 +58,10 @@ class ApiServerTest : FunSpec({
         indexer.close()
     }
 
-    /**
-     * Helper function to configure the test application with API routes
-     */
-    fun Application.configureTestRoutes() {
-        install(ContentNegotiation) {
-            json(Json {
-                prettyPrint = true
-                ignoreUnknownKeys = true
-            })
-        }
-
-        routing {
-            // List classes in package
-            get("/v1/packages/{packageName}/classes") {
-                try {
-                    val packageName = call.parameters["packageName"]!!
-                    val recursive = call.request.queryParameters["recursive"]?.toBoolean() ?: false
-                    val publicOnly = call.request.queryParameters["publicOnly"]?.toBoolean() ?: true
-                    val limit = call.request.queryParameters["limit"]?.toIntOrNull()
-                    val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-
-                    val kindsParam = call.request.queryParameters["kinds"]
-                    val kinds = kindsParam?.split(",")
-                        ?.mapNotNull { runCatching { ClassKind.valueOf(it.trim()) }.getOrNull() }
-                        ?.toSet()
-
-                    val classes = indexer.findClassesByPackage(
-                        packageName = packageName,
-                        recursive = recursive,
-                        kinds = kinds,
-                        publicOnly = publicOnly
-                    )
-
-                    val paginatedClasses = classes
-                        .drop(offset)
-                        .let { if (limit != null) it.take(limit) else it }
-
-                    val summaries = paginatedClasses.map { cls ->
-                        ClassSummary(
-                            fqcn = cls.fqcn,
-                            kind = cls.kind,
-                            modifiers = cls.modifiers.toList(),
-                            kotlin = cls.kotlin?.let {
-                                KotlinClassSummary(
-                                    isData = it.isData,
-                                    isValue = it.isValue
-                                )
-                            }
-                        )
-                    }
-
-                    val hasMore = limit != null && classes.size > offset + limit
-
-                    call.respond(
-                        ApiResponse.success(
-                            ListClassesResponse(
-                                packageName = packageName,
-                                classes = summaries,
-                                hasMore = hasMore
-                            )
-                        )
-                    )
-                } catch (e: Exception) {
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        ApiResponse.error<ListClassesResponse>("INTERNAL", e.message ?: "Unknown error")
-                    )
-                }
-            }
-
-            // List subpackages of package
-            get("/v1/packages/{packageName}/subpackages") {
-                try {
-                    val packageName = call.parameters["packageName"]!!
-                    val subpackages = indexer.findSubpackages(packageName)
-
-                    call.respond(
-                        ApiResponse.success(
-                            ListSubpackagesResponse(
-                                packageName = packageName,
-                                subpackages = subpackages
-                            )
-                        )
-                    )
-                } catch (e: Exception) {
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        ApiResponse.error<ListSubpackagesResponse>("INTERNAL", e.message ?: "Unknown error")
-                    )
-                }
-            }
-        }
-    }
-
     test("should list subpackages of a package") {
         testApplication {
             application {
-                configureTestRoutes()
+                configureApi(indexer)
             }
 
             val json = Json { ignoreUnknownKeys = true }
@@ -182,7 +82,7 @@ class ApiServerTest : FunSpec({
     test("should list classes in package with exact match (default recursive=false)") {
         testApplication {
             application {
-                configureTestRoutes()
+                configureApi(indexer)
             }
 
             val json = Json { ignoreUnknownKeys = true }
@@ -210,7 +110,7 @@ class ApiServerTest : FunSpec({
     test("should list classes in package recursively when recursive=true") {
         testApplication {
             application {
-                configureTestRoutes()
+                configureApi(indexer)
             }
 
             val json = Json { ignoreUnknownKeys = true }
@@ -242,7 +142,7 @@ class ApiServerTest : FunSpec({
     test("should list subpackages of kotlin.collections") {
         testApplication {
             application {
-                configureTestRoutes()
+                configureApi(indexer)
             }
 
             val json = Json { ignoreUnknownKeys = true }
