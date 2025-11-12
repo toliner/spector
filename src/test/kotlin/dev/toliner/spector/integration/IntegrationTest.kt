@@ -3,20 +3,22 @@ package dev.toliner.spector.integration
 import dev.toliner.spector.IntegrationTag
 import dev.toliner.spector.SlowTag
 import dev.toliner.spector.indexer.ClasspathIndexer
+import dev.toliner.spector.indexer.JavaStdLibIndexer
 import dev.toliner.spector.model.ClassKind
 import dev.toliner.spector.storage.TypeIndexer
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import java.io.File
 import java.nio.file.Files
 
 /**
- * Integration tests for full classpath indexing and querying.
+ * Integration tests for full classpath and Java standard library indexing and querying.
  *
- * These tests index the entire runtime classpath once at the beginning
+ * These tests index the entire runtime classpath and Java standard library once at the beginning
  * and share the index across all tests for performance.
  *
  * Tagged with IntegrationTag and SlowTag to allow selective test execution.
@@ -37,7 +39,6 @@ class IntegrationTest : FunSpec({
         indexer = TypeIndexer(tempDb.absolutePath)
 
         // Index the current runtime classpath once (includes kotlin-stdlib and test dependencies)
-        // Note: Java standard library classes are in modules (jrt:/) in Java 9+ and not in classpath
         val runtimeClasspath = System.getProperty("java.class.path")
             .split(File.pathSeparator)
             .map { File(it) }
@@ -45,6 +46,10 @@ class IntegrationTest : FunSpec({
 
         val classpathIndexer = ClasspathIndexer(indexer)
         classpathIndexer.indexClasspath(runtimeClasspath, parallel = false)
+
+        // Index Java standard library from jrt:/ (Java 9+ modular runtime)
+        val javaStdLibIndexer = JavaStdLibIndexer(indexer)
+        javaStdLibIndexer.indexJavaStdLib(parallel = false)
     }
 
     afterSpec {
@@ -100,5 +105,50 @@ class IntegrationTest : FunSpec({
             // Pair is a data class, so it should have Kotlin metadata
             pairClass.kotlin shouldNotBe null
         }
+    }
+
+    test("should index and query Java standard library classes") {
+        // Query for classes in java.lang package
+        val javaLangClasses = indexer.findClassesByPackage(
+            packageName = "java.lang",
+            recursive = false,
+            publicOnly = true
+        )
+
+        javaLangClasses.shouldNotBeEmpty()
+
+        val fqcn = javaLangClasses.map { it.fqcn }
+        fqcn shouldContain "java.lang.String"
+        fqcn shouldContain "java.lang.Object"
+
+        // Verify java.lang.String
+        val stringClass = indexer.findClassByFqcn("java.lang.String")
+        stringClass shouldNotBe null
+        stringClass!!.fqcn shouldBe "java.lang.String"
+        stringClass.kind shouldBe ClassKind.CLASS
+        // superClass is null for String because java.lang.Object is the implicit parent (filtered out by ClassScanner)
+        stringClass.superClass.shouldBeNull()
+
+        // Query for java.util package
+        val javaUtilClasses = indexer.findClassesByPackage(
+            packageName = "java.util",
+            recursive = false,
+            publicOnly = true
+        )
+
+        javaUtilClasses.shouldNotBeEmpty()
+        javaUtilClasses.map { it.fqcn } shouldContain "java.util.List"
+        javaUtilClasses.map { it.fqcn } shouldContain "java.util.ArrayList"
+
+        // Verify java.util.List interface
+        val listInterface = indexer.findClassByFqcn("java.util.List")
+        listInterface shouldNotBe null
+        listInterface!!.kind shouldBe ClassKind.INTERFACE
+
+        // Verify java.util.ArrayList class
+        val arrayListClass = indexer.findClassByFqcn("java.util.ArrayList")
+        arrayListClass shouldNotBe null
+        arrayListClass!!.kind shouldBe ClassKind.CLASS
+        arrayListClass.interfaces shouldContain "java.util.List"
     }
 })
