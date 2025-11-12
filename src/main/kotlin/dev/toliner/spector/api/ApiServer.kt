@@ -60,7 +60,7 @@ class ApiServer(
                 get("/v1/packages/{packageName}/classes") {
                     try {
                         val packageName = call.parameters["packageName"]!!
-                        val recursive = call.request.queryParameters["recursive"]?.toBoolean() ?: true
+                        val recursive = call.request.queryParameters["recursive"]?.toBoolean() ?: false
                         val publicOnly = call.request.queryParameters["publicOnly"]?.toBoolean() ?: true
                         val limit = call.request.queryParameters["limit"]?.toIntOrNull()
                         val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
@@ -111,6 +111,29 @@ class ApiServer(
                         call.respond(
                             HttpStatusCode.InternalServerError,
                             ApiResponse.error<ListClassesResponse>("INTERNAL", e.message ?: "Unknown error")
+                        )
+                    }
+                }
+
+                // List subpackages of package
+                get("/v1/packages/{packageName}/subpackages") {
+                    try {
+                        val packageName = call.parameters["packageName"]!!
+                        val subpackages = typeIndexer.findSubpackages(packageName)
+
+                        call.respond(
+                            ApiResponse.success(
+                                ListSubpackagesResponse(
+                                    packageName = packageName,
+                                    subpackages = subpackages
+                                )
+                            )
+                        )
+                    } catch (e: Exception) {
+                        logger.error("Error listing subpackages", e)
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ApiResponse.error<ListSubpackagesResponse>("INTERNAL", e.message ?: "Unknown error")
                         )
                     }
                 }

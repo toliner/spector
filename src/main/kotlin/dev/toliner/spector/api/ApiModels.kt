@@ -42,6 +42,12 @@ data class ListClassesResponse(
 )
 
 @Serializable
+data class ListSubpackagesResponse(
+    val packageName: String,
+    val subpackages: List<String>
+)
+
+@Serializable
 data class ClassSummary(
     val fqcn: String,
     val kind: ClassKind,

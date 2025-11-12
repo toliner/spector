@@ -182,6 +182,53 @@ class TypeIndexer(private val dbPath: String) : AutoCloseable {
         }
     }
 
+    /**
+     * Find direct subpackages of the given package.
+     *
+     * @param packageName The parent package name (e.g., "kotlin")
+     * @return List of direct subpackage names (e.g., ["kotlin.collections", "kotlin.text"])
+     */
+    fun findSubpackages(packageName: String): List<String> {
+        val query = """
+            SELECT DISTINCT package_name
+            FROM types
+            WHERE package_name LIKE ?
+            ORDER BY package_name
+        """.trimIndent()
+
+        return connection.prepareStatement(query).use { stmt ->
+            stmt.setString(1, "$packageName.%")
+            val rs = stmt.executeQuery()
+
+            val allSubpackages = buildList {
+                while (rs.next()) {
+                    add(rs.getString("package_name"))
+                }
+            }
+
+            // Filter to get only direct children (one level deeper)
+            val parentPrefix = "$packageName."
+            val parentDepth = packageName.count { it == '.' }
+
+            allSubpackages
+                .filter { it.startsWith(parentPrefix) }
+                .map { subpackage ->
+                    // Extract the direct child package name
+                    val remaining = subpackage.removePrefix(parentPrefix)
+                    val firstDotIndex = remaining.indexOf('.')
+                    if (firstDotIndex == -1) {
+                        // This is a direct child
+                        subpackage
+                    } else {
+                        // This is a nested package, get only the direct child part
+                        parentPrefix + remaining.substring(0, firstDotIndex)
+                    }
+                }
+                .distinct()
+                .sorted()
+        }
+    }
+
     fun findMembersByOwner(
         ownerFqcn: String,
         kinds: Set<MemberKind>? = null,
