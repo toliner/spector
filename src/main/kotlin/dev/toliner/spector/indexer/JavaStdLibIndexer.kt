@@ -68,16 +68,27 @@ class JavaStdLibIndexer(
 
     private fun scanAndIndexSequential(classFiles: List<ClassFileData>) {
         var processed = 0
-        for (classFile in classFiles) {
-            try {
-                scanAndIndexClass(classFile)
-                processed++
-                if (processed % 100 == 0) {
-                    logger.info("Processed $processed/${classFiles.size} classes from Java stdlib")
+
+        // Use a single transaction for all classes for massive performance improvement
+        typeIndexer.beginTransaction()
+        try {
+            for (classFile in classFiles) {
+                try {
+                    scanAndIndexClass(classFile)
+                    processed++
+                    if (processed % 100 == 0) {
+                        logger.info("Processed $processed/${classFiles.size} classes from Java stdlib")
+                    }
+                } catch (e: Exception) {
+                    logger.error("Failed to scan class: ${classFile.path}", e)
                 }
-            } catch (e: Exception) {
-                logger.error("Failed to scan class: ${classFile.path}", e)
             }
+            typeIndexer.commitTransaction()
+            logger.info("Transaction committed successfully")
+        } catch (e: Exception) {
+            logger.error("Transaction failed, rolling back", e)
+            typeIndexer.rollbackTransaction()
+            throw e
         }
     }
 
@@ -108,13 +119,21 @@ class JavaStdLibIndexer(
 
     private fun scanAndIndexClass(classFile: ClassFileData) {
         // Scan with ASM
-        val classInfo = classScanner.scanClass(classFile.bytes) ?: return
+        val scanResult = classScanner.scanClass(classFile.bytes) ?: return
 
         // Enrich with Kotlin metadata if available (though Java stdlib won't have it)
-        val enrichedClassInfo = kotlinEnricher.enrichClassInfo(classFile.bytes, classInfo)
+        val enrichedClassInfo = kotlinEnricher.enrichClassInfo(classFile.bytes, scanResult.classInfo)
 
-        // Index into database
+        // Index class into database
         typeIndexer.indexClass(enrichedClassInfo)
+
+        // Index members into database
+        for (field in scanResult.fields) {
+            typeIndexer.indexMember(field)
+        }
+        for (method in scanResult.methods) {
+            typeIndexer.indexMember(method)
+        }
     }
 
     /**

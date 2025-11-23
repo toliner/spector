@@ -19,6 +19,15 @@ class TypeIndexer(private val dbPath: String) : AutoCloseable {
     }
 
     init {
+        // Enable SQLite performance optimizations
+        connection.createStatement().use { stmt ->
+            // Use WAL mode for better concurrent access and performance
+            stmt.executeUpdate("PRAGMA journal_mode=WAL")
+            // Normal synchronous mode is faster and safe enough for most cases
+            stmt.executeUpdate("PRAGMA synchronous=NORMAL")
+            // Increase cache size (in pages, negative number = KB)
+            stmt.executeUpdate("PRAGMA cache_size=-64000") // 64MB cache
+        }
         createTables()
     }
 
@@ -283,6 +292,30 @@ class TypeIndexer(private val dbPath: String) : AutoCloseable {
                 null
             }
         }
+    }
+
+    /**
+     * Begin a transaction for batch operations.
+     * Must be followed by either commitTransaction() or rollbackTransaction().
+     */
+    fun beginTransaction() {
+        connection.autoCommit = false
+    }
+
+    /**
+     * Commit the current transaction.
+     */
+    fun commitTransaction() {
+        connection.commit()
+        connection.autoCommit = true
+    }
+
+    /**
+     * Rollback the current transaction.
+     */
+    fun rollbackTransaction() {
+        connection.rollback()
+        connection.autoCommit = true
     }
 
     fun clear() {

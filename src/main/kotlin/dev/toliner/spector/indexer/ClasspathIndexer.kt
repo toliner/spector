@@ -78,16 +78,27 @@ class ClasspathIndexer(
 
     private fun scanAndIndexSequential(classFiles: List<ClassFileSource>) {
         var processed = 0
-        for (source in classFiles) {
-            try {
-                scanAndIndexClass(source)
-                processed++
-                if (processed % 100 == 0) {
-                    logger.info("Processed $processed/${classFiles.size} classes")
+
+        // Use a single transaction for all classes for massive performance improvement
+        typeIndexer.beginTransaction()
+        try {
+            for (source in classFiles) {
+                try {
+                    scanAndIndexClass(source)
+                    processed++
+                    if (processed % 100 == 0) {
+                        logger.info("Processed $processed/${classFiles.size} classes")
+                    }
+                } catch (e: Exception) {
+                    logger.error("Failed to scan class: $source", e)
                 }
-            } catch (e: Exception) {
-                logger.error("Failed to scan class: $source", e)
             }
+            typeIndexer.commitTransaction()
+            logger.info("Transaction committed successfully")
+        } catch (e: Exception) {
+            logger.error("Transaction failed, rolling back", e)
+            typeIndexer.rollbackTransaction()
+            throw e
         }
     }
 
@@ -120,16 +131,21 @@ class ClasspathIndexer(
         val classBytes = source.readBytes()
 
         // Scan with ASM
-        val classInfo = classScanner.scanClass(classBytes) ?: return
+        val scanResult = classScanner.scanClass(classBytes) ?: return
 
         // Enrich with Kotlin metadata if available
-        val enrichedClassInfo = kotlinEnricher.enrichClassInfo(classBytes, classInfo)
+        val enrichedClassInfo = kotlinEnricher.enrichClassInfo(classBytes, scanResult.classInfo)
 
-        // Index into database
+        // Index class into database
         typeIndexer.indexClass(enrichedClassInfo)
 
-        // TODO: Extract and index members (fields, methods, properties)
-        // For now we'll skip member indexing to keep the PoC simple
+        // Index members into database
+        for (field in scanResult.fields) {
+            typeIndexer.indexMember(field)
+        }
+        for (method in scanResult.methods) {
+            typeIndexer.indexMember(method)
+        }
     }
 
     sealed class ClassFileSource {
