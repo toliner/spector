@@ -1,3 +1,4 @@
+import io.kotest.framework.gradle.tasks.KotestJvmTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
@@ -41,21 +42,63 @@ dependencies {
 
     // Test dependencies
     testImplementation(kotlin("test"))
-    testImplementation("io.kotest:kotest-runner-junit5:6.0.0")
-    testImplementation("io.kotest:kotest-framework-engine:6.0.0")
-    testImplementation("io.kotest:kotest-assertions-core:6.0.0")
+    testImplementation("io.kotest:kotest-runner-junit5:6.0.5")
+    testImplementation("io.kotest:kotest-framework-engine:6.0.5")
+    testImplementation("io.kotest:kotest-assertions-core:6.0.5")
     testImplementation("io.ktor:ktor-server-test-host:2.3.12")
+}
 
-    // Test dependencies for API testing
-    testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
-    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
-    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+kotlin {
+    jvmToolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
 }
 
 tasks {
     named<UpdateDaemonJvm>("updateDaemonJvm") {
         languageVersion = JavaLanguageVersion.of(21)
         vendor = JvmVendorSpec.ADOPTIUM
+    }
+
+    test {
+        useJUnitPlatform()
+
+        // Exclude integration and slow tests by default for fast feedback
+        systemProperty("kotest.tags", "!Integration")
+    }
+
+    register<Test>("integrationTest") {
+        description = "Runs integration tests (tagged with 'integration')"
+        group = "verification"
+
+        dependsOn(testClasses)
+        useJUnitPlatform()
+        systemProperty("kotest.tags", "Integration")
+
+        // Use the same classpath as the test task
+        testClassesDirs = test.get().testClassesDirs
+        classpath = test.get().classpath
+    }
+
+    register("printRuntimeCp") {
+        doLast {
+            val runtimeClasspath = configurations.getByName("runtimeClasspath")
+            println(runtimeClasspath.asPath)
+        }
+    }
+
+    register("printTestRuntimeCp") {
+        doLast {
+            val testRuntimeClasspath = configurations.getByName("testRuntimeClasspath")
+            println(testRuntimeClasspath.asPath)
+        }
+    }
+
+    withType<KotlinCompile> {
+        compilerOptions {
+            freeCompilerArgs.add("-Xskip-prerelease-check")
+        }
     }
 }
 
@@ -66,66 +109,11 @@ kotlin {
     }
 }
 
-tasks.test {
-    useJUnitPlatform()
-
-    // Exclude integration and slow tests by default for fast feedback
-    systemProperty("kotest.tags.exclude", "integration,slow")
-}
-
-// Task to run only integration tests
-tasks.register<Test>("integrationTest") {
-    description = "Runs integration tests (tagged with 'integration')"
-    group = "verification"
-
-    dependsOn(tasks.testClasses)
-    useJUnitPlatform()
-    systemProperty("kotest.tags.include", "integration")
-
-    // Use the same classpath as the test task
-    testClassesDirs = tasks.test.get().testClassesDirs
-    classpath = tasks.test.get().classpath
-}
-
-// Task to run all tests including integration tests
-tasks.register<Test>("allTests") {
-    description = "Runs all tests including integration and slow tests"
-    group = "verification"
-
-    dependsOn(tasks.testClasses)
-    useJUnitPlatform()
-    // No tag filtering - run everything
-
-    // Use the same classpath as the test task
-    testClassesDirs = tasks.test.get().testClassesDirs
-    classpath = tasks.test.get().classpath
-}
-
-// Tasks to print runtime classpaths for indexing
-tasks.register("printRuntimeCp") {
-    doLast {
-        val runtimeClasspath = configurations.getByName("runtimeClasspath")
-        println(runtimeClasspath.asPath)
-    }
-}
-
-tasks.register("printTestRuntimeCp") {
-    doLast {
-        val testRuntimeClasspath = configurations.getByName("testRuntimeClasspath")
-        println(testRuntimeClasspath.asPath)
-    }
-}
-
 application {
     mainClass.set("dev.toliner.spector.MainKt")
 }
+
 val compileKotlin: KotlinCompile by tasks
 compileKotlin.compilerOptions {
     freeCompilerArgs.set(listOf("-Xnested-type-aliases", "-Xskip-prerelease-check"))
-}
-
-tasks.withType<KotlinCompile> {
-    compilerOptions {
-        freeCompilerArgs.add("-Xskip-prerelease-check")
-    }
 }

@@ -29,7 +29,7 @@ fun main(args: Array<String>) {
 
             TypeIndexer(dbPath).use { indexer ->
                 val classpathIndexer = ClasspathIndexer(indexer)
-                classpathIndexer.indexClasspath(classpathEntries, parallel = true)
+                classpathIndexer.indexClasspath(classpathEntries, parallel = false)
             }
 
             logger.info("Indexing complete!")
