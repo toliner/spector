@@ -1,11 +1,13 @@
 package dev.toliner.spector.integration
 
-import dev.toliner.spector.IntegrationTag
-import dev.toliner.spector.SlowTag
+import dev.toliner.spector.Integration
+import dev.toliner.spector.Slow
 import dev.toliner.spector.indexer.ClasspathIndexer
 import dev.toliner.spector.indexer.JavaStdLibIndexer
 import dev.toliner.spector.model.ClassKind
 import dev.toliner.spector.storage.TypeIndexer
+import io.kotest.core.annotation.RequiresTag
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
@@ -16,17 +18,14 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * Integration tests for full classpath and Java standard library indexing and querying.
+ * Integration tests for Kotlin standard library and Java standard library indexing and querying.
  *
- * These tests index the entire runtime classpath and Java standard library once at the beginning
+ * These tests index Kotlin stdlib and Java standard library once at the beginning
  * and share the index across all tests for performance.
  *
  * Tagged with IntegrationTag and SlowTag to allow selective test execution.
  */
 class IntegrationTest : FunSpec({
-
-    // Apply tags to all tests in this spec
-    tags(IntegrationTag, SlowTag)
 
     // Shared resources across all tests in this spec
     lateinit var indexer: TypeIndexer
@@ -38,14 +37,16 @@ class IntegrationTest : FunSpec({
         tempDb.deleteOnExit()
         indexer = TypeIndexer(tempDb.absolutePath)
 
-        // Index the current runtime classpath once (includes kotlin-stdlib and test dependencies)
-        val runtimeClasspath = System.getProperty("java.class.path")
+        // Index Kotlin standard library only for faster test execution
+        val kotlinStdlib = System.getProperty("java.class.path")
             .split(File.pathSeparator)
             .map { File(it) }
-            .filter { it.exists() }
+            .firstOrNull { it.name.matches(Regex("kotlin-stdlib-\\d.*\\.jar")) }
 
-        val classpathIndexer = ClasspathIndexer(indexer)
-        classpathIndexer.indexClasspath(runtimeClasspath, parallel = false)
+        if (kotlinStdlib != null && kotlinStdlib.exists()) {
+            val classpathIndexer = ClasspathIndexer(indexer)
+            classpathIndexer.indexClasspath(listOf(kotlinStdlib), parallel = false)
+        }
 
         // Index Java standard library from jrt:/ (Java 9+ modular runtime)
         val javaStdLibIndexer = JavaStdLibIndexer(indexer)

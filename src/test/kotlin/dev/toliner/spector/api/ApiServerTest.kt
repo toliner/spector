@@ -1,9 +1,11 @@
 package dev.toliner.spector.api
 
-import dev.toliner.spector.IntegrationTag
-import dev.toliner.spector.SlowTag
+import dev.toliner.spector.Integration
+import dev.toliner.spector.Slow
 import dev.toliner.spector.indexer.ClasspathIndexer
 import dev.toliner.spector.storage.TypeIndexer
+import io.kotest.core.annotation.RequiresTag
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
@@ -14,7 +16,6 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.decodeFromString
 import java.io.File
 import java.nio.file.Files
 
@@ -28,14 +29,12 @@ import java.nio.file.Files
  */
 class ApiServerTest : FunSpec({
 
-    // Apply tags to all tests in this spec
-    tags(IntegrationTag, SlowTag)
-
     // Shared resources across all tests in this spec
     lateinit var indexer: TypeIndexer
     lateinit var tempDb: File
 
     beforeSpec {
+        println(System.getProperties())
         // Create temporary database and indexer once for all tests
         tempDb = Files.createTempFile("test-api-server", ".db").toFile()
         tempDb.deleteOnExit()
