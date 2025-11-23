@@ -20,7 +20,7 @@ This will:
 ### 2. Start the API Server
 
 ```bash
-./tools/spector-server start types.db 8080
+./tools/spector-server start types.db
 ```
 
 The server will start on port 8080. You can now query the indexed types.
@@ -104,19 +104,16 @@ Server management tool for starting, stopping, and monitoring the API server.
 ```
 
 Commands:
-- `start <db-path> [port]` - Start the server
+- `start <db-path>` - Start the server (port 8080)
 - `stop` - Stop the server
-- `restart <db-path> [port]` - Restart the server
+- `restart <db-path>` - Restart the server
 - `status` - Check server status
 - `logs` - Show server logs (follow mode)
 
 Examples:
 ```bash
-# Start server on default port (8080)
+# Start server on port 8080
 ./tools/spector-server start types.db
-
-# Start on custom port
-./tools/spector-server start types.db 9090
 
 # Check status
 ./tools/spector-server status
@@ -194,7 +191,7 @@ Here's a complete example of indexing a project and querying it:
 ./tools/spector-index project spector.db
 
 # 2. Start the API server
-./tools/spector-server start spector.db 8080
+./tools/spector-server start spector.db
 
 # 3. Query the API
 # List all packages
