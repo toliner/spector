@@ -19,11 +19,11 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(stringClassBytes)
 
             result shouldNotBe null
-            result!!.fqcn shouldBe "java.lang.String"
-            result.packageName shouldBe "java.lang"
-            result.kind shouldBe ClassKind.CLASS
-            result.modifiers shouldContain ClassModifier.PUBLIC
-            result.modifiers shouldContain ClassModifier.FINAL
+            result!!.classInfo.fqcn shouldBe "java.lang.String"
+            result.classInfo.packageName shouldBe "java.lang"
+            result.classInfo.kind shouldBe ClassKind.CLASS
+            result.classInfo.modifiers shouldContain ClassModifier.PUBLIC
+            result.classInfo.modifiers shouldContain ClassModifier.FINAL
         }
 
         test("should scan an interface") {
@@ -33,8 +33,8 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(listClassBytes)
 
             result shouldNotBe null
-            result!!.kind shouldBe ClassKind.INTERFACE
-            result.fqcn shouldBe "java.util.List"
+            result!!.classInfo.kind shouldBe ClassKind.INTERFACE
+            result.classInfo.fqcn shouldBe "java.util.List"
         }
 
         test("should detect superclass and interfaces") {
@@ -44,8 +44,8 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(arrayListClassBytes)
 
             result shouldNotBe null
-            result!!.superClass shouldBe "java.util.AbstractList"
-            result.interfaces shouldContain "java.util.List"
+            result!!.classInfo.superClass shouldBe "java.util.AbstractList"
+            result.classInfo.interfaces shouldContain "java.util.List"
         }
     }
 
@@ -58,10 +58,10 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(enumClassBytes)
 
             result shouldNotBe null
-            result!!.kind shouldBe ClassKind.ENUM
-            result.fqcn shouldBe "java.lang.Thread\$State"
-            result.modifiers shouldContain ClassModifier.PUBLIC
-            result.superClass shouldBe "java.lang.Enum"
+            result!!.classInfo.kind shouldBe ClassKind.ENUM
+            result.classInfo.fqcn shouldBe "java.lang.Thread\$State"
+            result.classInfo.modifiers shouldContain ClassModifier.PUBLIC
+            result.classInfo.superClass shouldBe "java.lang.Enum"
         }
 
         test("should scan an annotation class") {
@@ -72,9 +72,9 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(annotationClassBytes)
 
             result shouldNotBe null
-            result!!.kind shouldBe ClassKind.ANNOTATION
-            result.fqcn shouldBe "java.lang.Deprecated"
-            result.interfaces shouldContain "java.lang.annotation.Annotation"
+            result!!.classInfo.kind shouldBe ClassKind.ANNOTATION
+            result.classInfo.fqcn shouldBe "java.lang.Deprecated"
+            result.classInfo.interfaces shouldContain "java.lang.annotation.Annotation"
         }
     }
 
@@ -88,8 +88,8 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(mapClassBytes)
 
             result shouldNotBe null
-            result!!.fqcn shouldBe "java.util.Map"
-            result.kind shouldBe ClassKind.INTERFACE
+            result!!.classInfo.fqcn shouldBe "java.util.Map"
+            result.classInfo.kind shouldBe ClassKind.INTERFACE
             // TODO: Implement type parameter extraction from generic signatures
             // result.typeParameters.size shouldBe 2  // Map has type parameters K and V
         }
@@ -103,7 +103,7 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(classClassBytes)
 
             result shouldNotBe null
-            result!!.fqcn shouldBe "java.lang.Class"
+            result!!.classInfo.fqcn shouldBe "java.lang.Class"
             // TODO: Implement type parameter extraction
             // result.typeParameters.size shouldBe 1  // Class has one type parameter T
         }
@@ -118,8 +118,8 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(abstractClassBytes)
 
             result shouldNotBe null
-            result!!.modifiers shouldContain ClassModifier.ABSTRACT
-            result.modifiers shouldContain ClassModifier.PUBLIC
+            result!!.classInfo.modifiers shouldContain ClassModifier.ABSTRACT
+            result.classInfo.modifiers shouldContain ClassModifier.PUBLIC
         }
 
         test("should detect final modifier") {
@@ -130,7 +130,7 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(finalClassBytes)
 
             result shouldNotBe null
-            result!!.modifiers shouldContain ClassModifier.FINAL
+            result!!.classInfo.modifiers shouldContain ClassModifier.FINAL
         }
     }
 
@@ -143,8 +143,8 @@ class ClassScannerTest : FunSpec({
             val result = scanner.scanClass(mapEntryBytes)
 
             result shouldNotBe null
-            result!!.fqcn shouldBe "java.util.Map\$Entry"
-            result.kind shouldBe ClassKind.INTERFACE
+            result!!.classInfo.fqcn shouldBe "java.util.Map\$Entry"
+            result.classInfo.kind shouldBe ClassKind.INTERFACE
         }
     }
 })

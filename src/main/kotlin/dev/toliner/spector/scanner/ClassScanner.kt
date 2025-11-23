@@ -5,18 +5,27 @@ import org.objectweb.asm.*
 import org.objectweb.asm.Opcodes.*
 
 /**
+ * Result of scanning a class file, containing class info and member information.
+ */
+data class ClassScanResult(
+    val classInfo: ClassInfo,
+    val fields: List<FieldInfo>,
+    val methods: List<MethodInfo>
+)
+
+/**
  * Scans Java/Kotlin class files using ASM to extract type and member information.
  */
 class ClassScanner {
 
     typealias MyAnnotationRetention = dev.toliner.spector.model.AnnotationRetention
 
-    fun scanClass(classBytes: ByteArray): ClassInfo? {
+    fun scanClass(classBytes: ByteArray): ClassScanResult? {
         val visitor = ClassInfoVisitor()
         try {
             val reader = ClassReader(classBytes)
             reader.accept(visitor, ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG)
-            return visitor.buildClassInfo()
+            return visitor.buildClassScanResult()
         } catch (e: Exception) {
             // Handle corrupted or unsupported class files
             return null
@@ -139,7 +148,7 @@ class ClassScanner {
             return null
         }
 
-        fun buildClassInfo(): ClassInfo {
+        fun buildClassScanResult(): ClassScanResult {
             val fqcn = internalNameToFqcn(internalName)
             val packageName = fqcn.substringBeforeLast('.', "")
             val kind = determineClassKind(access)
@@ -148,7 +157,7 @@ class ClassScanner {
             val superClass = superName?.let { internalNameToFqcn(it) }?.takeIf { it != "java.lang.Object" }
             val interfaces = interfaceNames.map { internalNameToFqcn(it) }
 
-            return ClassInfo(
+            val classInfo = ClassInfo(
                 fqcn = fqcn,
                 packageName = packageName,
                 kind = kind,
@@ -157,6 +166,12 @@ class ClassScanner {
                 interfaces = interfaces,
                 annotations = annotations,
                 kotlin = if (isKotlinClass) KotlinClassInfo() else null
+            )
+
+            return ClassScanResult(
+                classInfo = classInfo,
+                fields = fields.toList(),
+                methods = methods.toList()
             )
         }
 

@@ -25,8 +25,8 @@ class KotlinMetadataEnricherTest : FunSpec({
 
             if (pairBytesStream != null) {
                 val bytes = pairBytesStream.readBytes()
-                val classInfo = classScanner.scanClass(bytes)!!
-                val enriched = enricher.enrichClassInfo(bytes, classInfo)
+                val scanResult = classScanner.scanClass(bytes)!!
+                val enriched = enricher.enrichClassInfo(bytes, scanResult.classInfo)
 
                 // Should complete without errors
                 enriched.fqcn shouldBe "kotlin.Pair"
@@ -37,8 +37,8 @@ class KotlinMetadataEnricherTest : FunSpec({
             // Tests that Java classes are handled correctly
             val stringBytes = String::class.java.getResourceAsStream("/java/lang/String.class")!!.readBytes()
 
-            val classInfo = classScanner.scanClass(stringBytes)!!
-            val enriched = enricher.enrichClassInfo(stringBytes, classInfo)
+            val scanResult = classScanner.scanClass(stringBytes)!!
+            val enriched = enricher.enrichClassInfo(stringBytes, scanResult.classInfo)
 
             // Should complete without errors
             enriched.fqcn shouldBe "java.lang.String"
