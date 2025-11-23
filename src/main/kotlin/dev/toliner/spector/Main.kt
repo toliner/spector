@@ -2,6 +2,7 @@ package dev.toliner.spector
 
 import dev.toliner.spector.api.ApiServer
 import dev.toliner.spector.indexer.ClasspathIndexer
+import dev.toliner.spector.indexer.JavaStdLibIndexer
 import dev.toliner.spector.storage.TypeIndexer
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -30,6 +31,10 @@ fun main(args: Array<String>) {
             TypeIndexer(dbPath).use { indexer ->
                 val classpathIndexer = ClasspathIndexer(indexer)
                 classpathIndexer.indexClasspath(classpathEntries, parallel = false)
+
+                logger.info("Indexing Java standard library...")
+                val javaStdLibIndexer = JavaStdLibIndexer(indexer)
+                javaStdLibIndexer.indexJavaStdLib(parallel = false)
             }
 
             logger.info("Indexing complete!")
@@ -74,7 +79,11 @@ fun main(args: Array<String>) {
 
             val indexer = TypeIndexer(dbPath)
             val classpathIndexer = ClasspathIndexer(indexer)
-            classpathIndexer.indexClasspath(classpathEntries, parallel = true)
+            classpathIndexer.indexClasspath(classpathEntries, parallel = false)
+
+            logger.info("Indexing Java standard library...")
+            val javaStdLibIndexer = JavaStdLibIndexer(indexer)
+            javaStdLibIndexer.indexJavaStdLib(parallel = false)
 
             logger.info("Indexing complete! Starting API server on port $port")
 
