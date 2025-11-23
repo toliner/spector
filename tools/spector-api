@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# Spector API Client Wrapper
+
+set -e
+
+API_BASE="${SPECTOR_API_BASE:-http://localhost:8080}"
+
+# Check if jq is available for JSON formatting
+HAS_JQ=false
+if command -v jq &> /dev/null; then
+    HAS_JQ=true
+fi
+
+usage() {
+    cat <<EOF
+Usage: spector-api <command> [options]
+
+Environment:
+    SPECTOR_API_BASE    API base URL (default: http://localhost:8080)
+
+Commands:
+    health                                    Check server health
+    packages <package> [--recursive]          List classes in package
+    subpackages <package>                     List subpackages
+    members <fqcn> [--kind K] [--visibility V] List class members
+    member-detail <json>                      Get member details (JSON input)
+
+Options for 'packages':
+    --recursive, -r         Include subpackages
+    --public                Only public classes (default)
+    --all                   All visibility levels
+
+Options for 'members':
+    --kind, -k <kind>       Filter by kind (FIELD, METHOD, CONSTRUCTOR, PROPERTY)
+    --visibility, -v <vis>  Filter by visibility (PUBLIC, PROTECTED, PRIVATE, PACKAGE)
+    --synthetic             Include synthetic members
+
+Examples:
+    # Check server health
+    spector-api health
+
+    # List classes in package
+    spector-api packages kotlin.collections
+
+    # List classes recursively
+    spector-api packages kotlin.collections --recursive
+
+    # List subpackages
+    spector-api subpackages kotlin
+
+    # List all members of a class
+    spector-api members java.lang.String
+
+    # List only public methods
+    spector-api members java.lang.String --kind METHOD --visibility PUBLIC
+
+    # Get member details
+    spector-api member-detail '{"ownerFqcn":"java.lang.String","name":"length","jvmDesc":"()I"}'
+EOF
+    exit 1
+}
+
+format_output() {
+    if [ "$HAS_JQ" = true ]; then
+        jq -C '.'
+    else
+        cat
+    fi
+}
+
+api_health() {
+    curl -s "${API_BASE}/health" | format_output
+}
+
+api_packages() {
+    local package="$1"
+    shift
+
+    local recursive="false"
+    local public_only="true"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --recursive|-r)
+                recursive="true"
+                shift
+                ;;
+            --public)
+                public_only="true"
+                shift
+                ;;
+            --all)
+                public_only="false"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                usage
+                ;;
+        esac
+    done
+
+    local url="${API_BASE}/v1/packages/${package}/classes?recursive=${recursive}&publicOnly=${public_only}"
+    curl -s "$url" | format_output
+}
+
+api_subpackages() {
+    local package="$1"
+
+    if [ -z "$package" ]; then
+        echo "Error: package name is required"
+        usage
+    fi
+
+    local url="${API_BASE}/v1/packages/${package}/subpackages"
+    curl -s "$url" | format_output
+}
+
+api_members() {
+    local fqcn="$1"
+    shift
+
+    if [ -z "$fqcn" ]; then
+        echo "Error: class FQCN is required"
+        usage
+    fi
+
+    local url="${API_BASE}/v1/classes/${fqcn}/members?"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --kind|-k)
+                url="${url}&kind=$2"
+                shift 2
+                ;;
+            --visibility|-v)
+                url="${url}&visibility=$2"
+                shift 2
+                ;;
+            --synthetic)
+                url="${url}&includeSynthetic=true"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                usage
+                ;;
+        esac
+    done
+
+    curl -s "$url" | format_output
+}
+
+api_member_detail() {
+    local json="$1"
+
+    if [ -z "$json" ]; then
+        echo "Error: JSON input is required"
+        echo "Example: {\"ownerFqcn\":\"java.lang.String\",\"name\":\"length\",\"jvmDesc\":\"()I\"}"
+        usage
+    fi
+
+    curl -s -X POST "${API_BASE}/v1/members/detail" \
+        -H "Content-Type: application/json" \
+        -d "$json" | format_output
+}
+
+# Helper commands
+
+search_class() {
+    local query="$1"
+    if [ -z "$query" ]; then
+        echo "Error: search query is required"
+        exit 1
+    fi
+
+    echo "Searching for classes matching: $query"
+    # This is a simple implementation - you might want to implement server-side search
+    echo "Note: This would require a search endpoint on the server"
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    health)
+        api_health
+        ;;
+    packages|pkg)
+        shift
+        api_packages "$@"
+        ;;
+    subpackages|subpkg)
+        api_subpackages "$2"
+        ;;
+    members|mem)
+        shift
+        api_members "$@"
+        ;;
+    member-detail|detail)
+        api_member_detail "$2"
+        ;;
+    search)
+        search_class "$2"
+        ;;
+    *)
+        usage
+        ;;
+esac

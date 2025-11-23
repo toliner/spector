@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# Spector Indexing Script
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+usage() {
+    cat <<EOF
+Usage: spector-index <command> <db-path> [options]
+
+Commands:
+    project <db-path>                    Index this Spector project itself
+    gradle <db-path> <gradle-project>    Index a Gradle project's runtime classpath
+    jars <db-path> <jar-files...>        Index specific JAR files
+    dirs <db-path> <directories...>      Index class directories
+    stdlib <db-path>                     Index Java standard library only
+
+Examples:
+    # Index this Spector project
+    spector-index project types.db
+
+    # Index another Gradle project
+    spector-index gradle types.db /path/to/project
+
+    # Index specific JARs
+    spector-index jars types.db lib/*.jar
+
+    # Index compiled classes
+    spector-index dirs types.db build/classes/kotlin/main
+
+    # Index only Java stdlib (fast, for testing)
+    spector-index stdlib types.db
+EOF
+    exit 1
+}
+
+index_project() {
+    local db_path="$1"
+
+    if [ -z "$db_path" ]; then
+        echo "Error: database path is required"
+        usage
+    fi
+
+    echo "Indexing Spector project..."
+    cd "$PROJECT_ROOT"
+
+    # Build the project first
+    echo "Building project..."
+    ./gradlew assemble -q
+
+    # Get runtime classpath
+    local classpath=$(./gradlew -q printRuntimeCp | tail -1)
+
+    # Add compiled classes
+    local classes="$PROJECT_ROOT/build/classes/kotlin/main"
+
+    # Index
+    echo "Indexing to: $db_path"
+    ./gradlew -q run --args="index $db_path $classes $classpath"
+}
+
+index_gradle_project() {
+    local db_path="$1"
+    local gradle_project="$2"
+
+    if [ -z "$db_path" ] || [ -z "$gradle_project" ]; then
+        echo "Error: database path and gradle project path are required"
+        usage
+    fi
+
+    if [ ! -d "$gradle_project" ]; then
+        echo "Error: Gradle project not found: $gradle_project"
+        exit 1
+    fi
+
+    if [ ! -f "$gradle_project/gradlew" ] && [ ! -f "$gradle_project/build.gradle" ] && [ ! -f "$gradle_project/build.gradle.kts" ]; then
+        echo "Error: Not a valid Gradle project: $gradle_project"
+        exit 1
+    fi
+
+    echo "Indexing Gradle project: $gradle_project"
+    cd "$gradle_project"
+
+    # Create printRuntimeCp task if it doesn't exist
+    local has_task=$(./gradlew tasks --all 2>/dev/null | grep -c "printRuntimeCp" || echo "0")
+
+    if [ "$has_task" -eq "0" ]; then
+        echo "Note: Adding temporary printRuntimeCp task"
+        # You'll need to add this task manually or use a different approach
+        echo "Error: Target project needs a 'printRuntimeCp' task. Add this to build.gradle.kts:"
+        echo ""
+        echo 'tasks.register("printRuntimeCp") {'
+        echo '    doLast {'
+        echo '        println(configurations.getByName("runtimeClasspath").asPath)'
+        echo '    }'
+        echo '}'
+        exit 1
+    fi
+
+    # Get runtime classpath
+    local classpath=$(./gradlew -q printRuntimeCp | tail -1)
+
+    # Index
+    cd "$PROJECT_ROOT"
+    echo "Indexing to: $db_path"
+    ./gradlew -q run --args="index $db_path $classpath"
+}
+
+index_jars() {
+    local db_path="$1"
+    shift
+
+    if [ -z "$db_path" ]; then
+        echo "Error: database path is required"
+        usage
+    fi
+
+    if [ $# -eq 0 ]; then
+        echo "Error: at least one JAR file is required"
+        usage
+    fi
+
+    # Convert to absolute paths
+    local jars=()
+    for jar in "$@"; do
+        if [ -f "$jar" ]; then
+            jars+=("$(cd "$(dirname "$jar")" && pwd)/$(basename "$jar")")
+        else
+            echo "Warning: JAR file not found: $jar"
+        fi
+    done
+
+    if [ ${#jars[@]} -eq 0 ]; then
+        echo "Error: no valid JAR files found"
+        exit 1
+    fi
+
+    echo "Indexing ${#jars[@]} JAR file(s) to: $db_path"
+    cd "$PROJECT_ROOT"
+    ./gradlew -q run --args="index $db_path ${jars[*]}"
+}
+
+index_dirs() {
+    local db_path="$1"
+    shift
+
+    if [ -z "$db_path" ]; then
+        echo "Error: database path is required"
+        usage
+    fi
+
+    if [ $# -eq 0 ]; then
+        echo "Error: at least one directory is required"
+        usage
+    fi
+
+    # Convert to absolute paths
+    local dirs=()
+    for dir in "$@"; do
+        if [ -d "$dir" ]; then
+            dirs+=("$(cd "$dir" && pwd)")
+        else
+            echo "Warning: directory not found: $dir"
+        fi
+    done
+
+    if [ ${#dirs[@]} -eq 0 ]; then
+        echo "Error: no valid directories found"
+        exit 1
+    fi
+
+    echo "Indexing ${#dirs[@]} director(ies) to: $db_path"
+    cd "$PROJECT_ROOT"
+    ./gradlew -q run --args="index $db_path ${dirs[*]}"
+}
+
+index_stdlib() {
+    local db_path="$1"
+
+    if [ -z "$db_path" ]; then
+        echo "Error: database path is required"
+        usage
+    fi
+
+    echo "Note: This command only indexes Java stdlib through the regular index command"
+    echo "The indexer automatically includes Java standard library when indexing."
+    echo ""
+    echo "To index only Kotlin stdlib, use:"
+    echo "  spector-index jars $db_path \$(find ~/.gradle/caches -name 'kotlin-stdlib-*.jar' | head -1)"
+    exit 1
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    project)
+        index_project "$2"
+        ;;
+    gradle)
+        index_gradle_project "$2" "$3"
+        ;;
+    jars)
+        shift
+        index_jars "$@"
+        ;;
+    dirs)
+        shift
+        index_dirs "$@"
+        ;;
+    stdlib)
+        index_stdlib "$2"
+        ;;
+    *)
+        usage
+        ;;
+esac

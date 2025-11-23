@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Spector Server Management Script
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_DIR="${PROJECT_ROOT}/.local"
+PID_FILE="${LOCAL_DIR}/spector-server.pid"
+LOG_FILE="${LOCAL_DIR}/spector-server.log"
+
+# Ensure .local directory exists
+mkdir -p "$LOCAL_DIR"
+
+usage() {
+    cat <<EOF
+Usage: spector-server <command> [options]
+
+Commands:
+    start <db-path> [port]     Start the API server
+    stop                       Stop the API server
+    restart <db-path> [port]   Restart the API server
+    status                     Check server status
+    logs                       Show server logs
+
+Examples:
+    spector-server start types.db 8080
+    spector-server stop
+    spector-server status
+EOF
+    exit 1
+}
+
+start_server() {
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if ps -p "$PID" > /dev/null 2>&1; then
+            echo "Server is already running (PID: $PID)"
+            exit 1
+        else
+            rm -f "$PID_FILE"
+        fi
+    fi
+
+    local db_path="$1"
+    local port="${2:-8080}"
+
+    if [ -z "$db_path" ]; then
+        echo "Error: database path is required"
+        usage
+    fi
+
+    echo "Starting Spector API server..."
+    echo "Database: $db_path"
+    echo "Port: $port"
+    echo "Logs: $LOG_FILE"
+
+    cd "$PROJECT_ROOT"
+    nohup ./gradlew -q run --args="serve $db_path $port" > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+
+    # Wait a moment for server to start
+    sleep 2
+
+    if ps -p $(cat "$PID_FILE") > /dev/null 2>&1; then
+        echo "Server started successfully (PID: $(cat "$PID_FILE"))"
+        echo "API available at: http://localhost:$port"
+        echo "Stop with: spector-server stop"
+    else
+        echo "Failed to start server. Check logs: $LOG_FILE"
+        rm -f "$PID_FILE"
+        exit 1
+    fi
+}
+
+stop_server() {
+    if [ ! -f "$PID_FILE" ]; then
+        echo "Server is not running (no PID file found)"
+        exit 0
+    fi
+
+    PID=$(cat "$PID_FILE")
+
+    if ! ps -p "$PID" > /dev/null 2>&1; then
+        echo "Server is not running (stale PID file)"
+        rm -f "$PID_FILE"
+        exit 0
+    fi
+
+    echo "Stopping Spector API server (PID: $PID)..."
+
+    # Try graceful shutdown via API first
+    local port=$(lsof -ti:8080 2>/dev/null || echo "")
+    if [ -n "$port" ]; then
+        curl -s -X POST http://localhost:8080/shutdown > /dev/null 2>&1 || true
+        sleep 2
+    fi
+
+    # If still running, kill it
+    if ps -p "$PID" > /dev/null 2>&1; then
+        kill "$PID"
+        sleep 1
+
+        # Force kill if necessary
+        if ps -p "$PID" > /dev/null 2>&1; then
+            kill -9 "$PID"
+        fi
+    fi
+
+    rm -f "$PID_FILE"
+    echo "Server stopped"
+}
+
+status_server() {
+    if [ ! -f "$PID_FILE" ]; then
+        echo "Server is not running"
+        exit 0
+    fi
+
+    PID=$(cat "$PID_FILE")
+
+    if ps -p "$PID" > /dev/null 2>&1; then
+        echo "Server is running (PID: $PID)"
+
+        # Try to get port info
+        local port_info=$(lsof -ti:8080 2>/dev/null || echo "")
+        if [ -n "$port_info" ]; then
+            echo "Listening on port: 8080"
+            echo "API available at: http://localhost:8080"
+        fi
+    else
+        echo "Server is not running (stale PID file)"
+        rm -f "$PID_FILE"
+    fi
+}
+
+show_logs() {
+    if [ -f "$LOG_FILE" ]; then
+        tail -f "$LOG_FILE"
+    else
+        echo "No log file found at: $LOG_FILE"
+        exit 1
+    fi
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    start)
+        start_server "$2" "$3"
+        ;;
+    stop)
+        stop_server
+        ;;
+    restart)
+        stop_server
+        sleep 1
+        start_server "$2" "$3"
+        ;;
+    status)
+        status_server
+        ;;
+    logs)
+        show_logs
+        ;;
+    *)
+        usage
+        ;;
+esac
