@@ -153,18 +153,33 @@ fun Application.configureApi(typeIndexer: TypeIndexer) {
                     ?.toSet()
 
                 val includeSynthetic = call.request.queryParameters["includeSynthetic"]?.toBoolean() ?: false
+                val inherited = call.request.queryParameters["inherited"]?.toBoolean() ?: false
 
-                val members = typeIndexer.findMembersByOwner(
+                // Get direct members
+                val directMembers = typeIndexer.findMembersByOwner(
                     ownerFqcn = fqcn,
                     kinds = kinds,
                     visibilities = visibilities,
                     includeSynthetic = includeSynthetic
                 )
 
+                // Get inherited members if requested
+                val allMembers = if (inherited) {
+                    val inheritedMembers = typeIndexer.findInheritedMembers(
+                        fqcn = fqcn,
+                        kinds = kinds,
+                        visibilities = visibilities,
+                        includeSynthetic = includeSynthetic
+                    )
+                    directMembers + inheritedMembers
+                } else {
+                    directMembers
+                }
+
                 val groupedMembers = MembersByKind(
-                    properties = members.filterIsInstance<PropertyInfo>(),
-                    methods = members.filterIsInstance<MethodInfo>(),
-                    fields = members.filterIsInstance<FieldInfo>()
+                    properties = allMembers.filterIsInstance<PropertyInfo>(),
+                    methods = allMembers.filterIsInstance<MethodInfo>(),
+                    fields = allMembers.filterIsInstance<FieldInfo>()
                 )
 
                 call.respond(
@@ -226,6 +241,160 @@ fun Application.configureApi(typeIndexer: TypeIndexer) {
                 call.respond(
                     HttpStatusCode.InternalServerError,
                     ApiResponse.error<GetMemberDetailResponse>("INTERNAL", e.message ?: "Unknown error")
+                )
+            }
+        }
+
+        // Get class hierarchy
+        get("/v1/classes/{fqcn}/hierarchy") {
+            try {
+                val fqcn = call.parameters["fqcn"]!!
+                val includeSubclasses = call.request.queryParameters["includeSubclasses"]?.toBoolean() ?: false
+
+                val classInfo = typeIndexer.findClassByFqcn(fqcn)
+                if (classInfo == null) {
+                    call.respond(
+                        HttpStatusCode.NotFound,
+                        ApiResponse.error<ClassHierarchyResponse>("NOT_FOUND", "Class not found: $fqcn")
+                    )
+                    return@get
+                }
+
+                val superclassChain = typeIndexer.findSuperclassChain(fqcn)
+                val allInterfaces = typeIndexer.findAllInterfaces(fqcn).toList().sorted()
+                val directSubclasses = if (includeSubclasses) {
+                    typeIndexer.findSubclasses(fqcn).sorted()
+                } else {
+                    null
+                }
+
+                call.respond(
+                    ApiResponse.success(
+                        ClassHierarchyResponse(
+                            fqcn = fqcn,
+                            superClass = classInfo.superClass,
+                            interfaces = classInfo.interfaces,
+                            superclassChain = superclassChain,
+                            allInterfaces = allInterfaces,
+                            directSubclasses = directSubclasses
+                        )
+                    )
+                )
+            } catch (e: Exception) {
+                logger.error("Error getting class hierarchy", e)
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    ApiResponse.error<ClassHierarchyResponse>("INTERNAL", e.message ?: "Unknown error")
+                )
+            }
+        }
+
+        // Get subclasses of a class
+        get("/v1/classes/{fqcn}/subclasses") {
+            try {
+                val fqcn = call.parameters["fqcn"]!!
+                val recursive = call.request.queryParameters["recursive"]?.toBoolean() ?: false
+
+                val classInfo = typeIndexer.findClassByFqcn(fqcn)
+                if (classInfo == null) {
+                    call.respond(
+                        HttpStatusCode.NotFound,
+                        ApiResponse.error<ListSubclassesResponse>("NOT_FOUND", "Class not found: $fqcn")
+                    )
+                    return@get
+                }
+
+                val directSubclasses = typeIndexer.findSubclasses(fqcn).sorted()
+                val allSubclasses = if (recursive) {
+                    val visited = mutableSetOf<String>()
+                    val queue = ArrayDeque<String>()
+                    queue.add(fqcn)
+                    visited.add(fqcn)
+
+                    val result = mutableListOf<String>()
+                    while (queue.isNotEmpty()) {
+                        val current = queue.removeFirst()
+                        val subs = typeIndexer.findSubclasses(current)
+                        for (sub in subs) {
+                            if (sub !in visited) {
+                                visited.add(sub)
+                                queue.add(sub)
+                                result.add(sub)
+                            }
+                        }
+                        // Safety check
+                        if (visited.size > 10000) break
+                    }
+                    result.sorted()
+                } else {
+                    null
+                }
+
+                call.respond(
+                    ApiResponse.success(
+                        ListSubclassesResponse(
+                            fqcn = fqcn,
+                            directSubclasses = directSubclasses,
+                            allSubclasses = allSubclasses
+                        )
+                    )
+                )
+            } catch (e: Exception) {
+                logger.error("Error getting subclasses", e)
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    ApiResponse.error<ListSubclassesResponse>("INTERNAL", e.message ?: "Unknown error")
+                )
+            }
+        }
+
+        // Get implementations of an interface
+        get("/v1/interfaces/{fqcn}/implementations") {
+            try {
+                val fqcn = call.parameters["fqcn"]!!
+
+                val interfaceInfo = typeIndexer.findClassByFqcn(fqcn)
+                if (interfaceInfo == null) {
+                    call.respond(
+                        HttpStatusCode.NotFound,
+                        ApiResponse.error<ListImplementationsResponse>("NOT_FOUND", "Interface not found: $fqcn")
+                    )
+                    return@get
+                }
+
+                if (interfaceInfo.kind != ClassKind.INTERFACE) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ApiResponse.error<ListImplementationsResponse>(
+                            "INVALID_KIND",
+                            "Expected interface, but $fqcn is a ${interfaceInfo.kind}"
+                        )
+                    )
+                    return@get
+                }
+
+                val implementations = typeIndexer.findImplementations(fqcn)
+                val implementationInfos = implementations.map { cls ->
+                    ImplementationInfo(
+                        fqcn = cls.fqcn,
+                        kind = cls.kind,
+                        modifiers = cls.modifiers.toList()
+                    )
+                }.sortedBy { it.fqcn }
+
+                call.respond(
+                    ApiResponse.success(
+                        ListImplementationsResponse(
+                            interfaceFqcn = fqcn,
+                            implementations = implementationInfos
+                        )
+                    )
+                )
+            } catch (e: Exception) {
+                logger.error("Error getting implementations", e)
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    ApiResponse.error<ListImplementationsResponse>("INTERNAL", e.message ?: "Unknown error")
                 )
             }
         }

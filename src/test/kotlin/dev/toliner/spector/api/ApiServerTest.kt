@@ -9,6 +9,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotBeEmpty
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.*
@@ -33,6 +34,101 @@ class ApiServerTest : FunSpec({
     lateinit var indexer: TypeIndexer
     lateinit var tempDb: File
 
+    fun createTestInheritanceHierarchy() {
+        // Create test classes with inheritance relationships
+        indexer.indexClass(
+            dev.toliner.spector.model.ClassInfo(
+                fqcn = "test.BaseInterface",
+                packageName = "test",
+                kind = dev.toliner.spector.model.ClassKind.INTERFACE,
+                modifiers = setOf(dev.toliner.spector.model.ClassModifier.PUBLIC),
+                superClass = null,
+                interfaces = emptyList()
+            )
+        )
+
+        indexer.indexClass(
+            dev.toliner.spector.model.ClassInfo(
+                fqcn = "test.DerivedInterface",
+                packageName = "test",
+                kind = dev.toliner.spector.model.ClassKind.INTERFACE,
+                modifiers = setOf(dev.toliner.spector.model.ClassModifier.PUBLIC),
+                superClass = null,
+                interfaces = listOf("test.BaseInterface")
+            )
+        )
+
+        indexer.indexClass(
+            dev.toliner.spector.model.ClassInfo(
+                fqcn = "test.AbstractBase",
+                packageName = "test",
+                kind = dev.toliner.spector.model.ClassKind.CLASS,
+                modifiers = setOf(dev.toliner.spector.model.ClassModifier.PUBLIC, dev.toliner.spector.model.ClassModifier.ABSTRACT),
+                superClass = null,
+                interfaces = listOf("test.BaseInterface")
+            )
+        )
+
+        indexer.indexClass(
+            dev.toliner.spector.model.ClassInfo(
+                fqcn = "test.ConcreteChild",
+                packageName = "test",
+                kind = dev.toliner.spector.model.ClassKind.CLASS,
+                modifiers = setOf(dev.toliner.spector.model.ClassModifier.PUBLIC),
+                superClass = "test.AbstractBase",
+                interfaces = listOf("test.DerivedInterface")
+            )
+        )
+
+        indexer.indexClass(
+            dev.toliner.spector.model.ClassInfo(
+                fqcn = "test.AnotherChild",
+                packageName = "test",
+                kind = dev.toliner.spector.model.ClassKind.CLASS,
+                modifiers = setOf(dev.toliner.spector.model.ClassModifier.PUBLIC),
+                superClass = "test.AbstractBase",
+                interfaces = emptyList()
+            )
+        )
+
+        // Add some members for testing inherited members
+        indexer.indexMember(
+            dev.toliner.spector.model.MethodInfo(
+                ownerFqcn = "test.AbstractBase",
+                name = "baseMethod",
+                returnType = dev.toliner.spector.model.TypeRef.primitiveType("void"),
+                parameters = emptyList(),
+                visibility = dev.toliner.spector.model.Visibility.PUBLIC,
+                static = false,
+                isFinal = false,
+                isAbstract = false,
+                isSynthetic = false,
+                isConstructor = false,
+                jvmDesc = "()V",
+                annotations = emptyList(),
+                kotlin = null
+            )
+        )
+
+        indexer.indexMember(
+            dev.toliner.spector.model.MethodInfo(
+                ownerFqcn = "test.ConcreteChild",
+                name = "childMethod",
+                returnType = dev.toliner.spector.model.TypeRef.primitiveType("void"),
+                parameters = emptyList(),
+                visibility = dev.toliner.spector.model.Visibility.PUBLIC,
+                static = false,
+                isFinal = false,
+                isAbstract = false,
+                isSynthetic = false,
+                isConstructor = false,
+                jvmDesc = "()V",
+                annotations = emptyList(),
+                kotlin = null
+            )
+        )
+    }
+
     beforeSpec {
         println(System.getProperties())
         // Create temporary database and indexer once for all tests
@@ -50,6 +146,9 @@ class ApiServerTest : FunSpec({
             val classpathIndexer = ClasspathIndexer(indexer)
             classpathIndexer.indexClasspath(listOf(kotlinStdlib), parallel = false)
         }
+
+        // Create test classes for inheritance hierarchy testing
+        createTestInheritanceHierarchy()
     }
 
     afterSpec {
@@ -164,6 +263,218 @@ class ApiServerTest : FunSpec({
                 }
                 hasExpectedSubpackages shouldBe true
             }
+        }
+    }
+
+    test("should get class hierarchy") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            // Test with our test class hierarchy
+            val response = client.get("/v1/classes/test.ConcreteChild/hierarchy")
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ClassHierarchyResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val hierarchy = body.data!!
+
+            hierarchy.fqcn shouldBe "test.ConcreteChild"
+            hierarchy.superClass shouldBe "test.AbstractBase"
+            hierarchy.superclassChain.shouldNotBeEmpty()
+            hierarchy.superclassChain shouldContain "test.AbstractBase"
+            hierarchy.allInterfaces.shouldNotBeEmpty()
+            hierarchy.allInterfaces shouldContain "test.BaseInterface"
+            hierarchy.allInterfaces shouldContain "test.DerivedInterface"
+        }
+    }
+
+    test("should get class hierarchy with subclasses") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/classes/test.AbstractBase/hierarchy") {
+                parameter("includeSubclasses", true)
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ClassHierarchyResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val hierarchy = body.data!!
+
+            hierarchy.fqcn shouldBe "test.AbstractBase"
+            hierarchy.directSubclasses!!.shouldNotBeEmpty()
+            // ConcreteChild and AnotherChild should be subclasses of AbstractBase
+            hierarchy.directSubclasses!! shouldContain "test.ConcreteChild"
+            hierarchy.directSubclasses!! shouldContain "test.AnotherChild"
+        }
+    }
+
+    test("should return 404 for non-existent class hierarchy") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val response = client.get("/v1/classes/com.example.NonExistent/hierarchy")
+            response.status shouldBe HttpStatusCode.NotFound
+        }
+    }
+
+    test("should get direct subclasses") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/classes/test.AbstractBase/subclasses") {
+                parameter("recursive", false)
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ListSubclassesResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val data = body.data!!
+
+            data.fqcn shouldBe "test.AbstractBase"
+            data.directSubclasses.shouldNotBeEmpty()
+            data.directSubclasses shouldContain "test.ConcreteChild"
+            data.directSubclasses shouldContain "test.AnotherChild"
+            data.allSubclasses shouldBe null // Not requested
+        }
+    }
+
+    test("should get all subclasses recursively") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/classes/test.AbstractBase/subclasses") {
+                parameter("recursive", true)
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ListSubclassesResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val data = body.data!!
+
+            data.fqcn shouldBe "test.AbstractBase"
+            data.directSubclasses.shouldNotBeEmpty()
+            // Since our test hierarchy is shallow, recursive and direct should be the same
+            data.allSubclasses!! shouldContain "test.ConcreteChild"
+            data.allSubclasses!! shouldContain "test.AnotherChild"
+        }
+    }
+
+    test("should get interface implementations") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/interfaces/test.BaseInterface/implementations")
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ListImplementationsResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val data = body.data!!
+
+            data.interfaceFqcn shouldBe "test.BaseInterface"
+            data.implementations.shouldNotBeEmpty()
+            data.implementations.map { it.fqcn } shouldContain "test.AbstractBase"
+        }
+    }
+
+    test("should return error when requesting implementations for non-interface") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/interfaces/test.ConcreteChild/implementations")
+
+            response.status shouldBe HttpStatusCode.BadRequest
+            val body = json.decodeFromString<ApiResponse<ListImplementationsResponse>>(response.bodyAsText())
+
+            body.ok shouldBe false
+            body.error?.code shouldBe "INVALID_KIND"
+        }
+    }
+
+    test("should list members with inherited=false (default behavior)") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            val response = client.get("/v1/classes/test.ConcreteChild/members") {
+                parameter("inherited", false)
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            val body = json.decodeFromString<ApiResponse<ListMembersResponse>>(response.bodyAsText())
+
+            body.ok shouldBe true
+            val data = body.data!!
+
+            data.fqcn shouldBe "test.ConcreteChild"
+            // Should only have childMethod, not baseMethod
+            data.members.methods.map { it.name } shouldContain "childMethod"
+            data.members.methods.map { it.name }.shouldNotContain("baseMethod")
+        }
+    }
+
+    test("should list members with inherited=true") {
+        testApplication {
+            application {
+                configureApi(indexer)
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+
+            // Get members without inheritance
+            val responseNoInherit = client.get("/v1/classes/test.ConcreteChild/members") {
+                parameter("inherited", false)
+            }
+            val bodyNoInherit = json.decodeFromString<ApiResponse<ListMembersResponse>>(responseNoInherit.bodyAsText())
+            val noInheritCount = bodyNoInherit.data!!.members.methods.size
+
+            // Get members with inheritance
+            val responseWithInherit = client.get("/v1/classes/test.ConcreteChild/members") {
+                parameter("inherited", true)
+            }
+            val bodyWithInherit = json.decodeFromString<ApiResponse<ListMembersResponse>>(responseWithInherit.bodyAsText())
+
+            // Should have both childMethod and baseMethod
+            bodyWithInherit.data!!.members.methods.map { it.name } shouldContain "childMethod"
+            bodyWithInherit.data!!.members.methods.map { it.name } shouldContain "baseMethod"
+
+            // With inheritance should have more methods
+            val withInheritCount = bodyWithInherit.data!!.members.methods.size
+            withInheritCount shouldBeGreaterThan noInheritCount
         }
     }
 })

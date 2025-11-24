@@ -58,6 +58,12 @@ class TypeIndexer(private val dbPath: String) : AutoCloseable {
 
             stmt.executeUpdate(
                 """
+                CREATE INDEX IF NOT EXISTS idx_super_class ON types(super_class)
+                """.trimIndent()
+            )
+
+            stmt.executeUpdate(
+                """
                 CREATE TABLE IF NOT EXISTS members (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     owner_fqcn TEXT NOT NULL,
@@ -292,6 +298,192 @@ class TypeIndexer(private val dbPath: String) : AutoCloseable {
                 null
             }
         }
+    }
+
+    /**
+     * Find all direct subclasses of the given class.
+     *
+     * @param fqcn The fully qualified class name
+     * @return List of FQCNs of direct subclasses
+     */
+    fun findSubclasses(fqcn: String): List<String> {
+        return connection.prepareStatement(
+            "SELECT fqcn FROM types WHERE super_class = ? ORDER BY fqcn"
+        ).use { stmt ->
+            stmt.setString(1, fqcn)
+            val rs = stmt.executeQuery()
+            buildList {
+                while (rs.next()) {
+                    add(rs.getString("fqcn"))
+                }
+            }
+        }
+    }
+
+    /**
+     * Find all classes that implement the given interface.
+     *
+     * @param interfaceFqcn The fully qualified interface name
+     * @return List of ClassInfo objects that implement the interface
+     */
+    fun findImplementations(interfaceFqcn: String): List<ClassInfo> {
+        return connection.prepareStatement(
+            "SELECT data FROM types WHERE interfaces LIKE ? ORDER BY fqcn"
+        ).use { stmt ->
+            // Use LIKE with JSON array pattern matching
+            stmt.setString(1, "%\"$interfaceFqcn\"%")
+            val rs = stmt.executeQuery()
+            buildList {
+                while (rs.next()) {
+                    val classInfo = json.decodeFromString<ClassInfo>(rs.getString("data"))
+                    // Verify the interface is actually in the list (LIKE can have false positives)
+                    if (classInfo.interfaces.contains(interfaceFqcn)) {
+                        add(classInfo)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Find the superclass chain from the given class up to java.lang.Object.
+     *
+     * @param fqcn The fully qualified class name
+     * @return List of FQCNs representing the inheritance chain (excluding the input class itself)
+     */
+    fun findSuperclassChain(fqcn: String): List<String> {
+        val chain = mutableListOf<String>()
+        var currentFqcn = fqcn
+
+        while (true) {
+            val classInfo = findClassByFqcn(currentFqcn) ?: break
+            val superClass = classInfo.superClass ?: break
+            chain.add(superClass)
+            currentFqcn = superClass
+
+            // Safety check to prevent infinite loops
+            if (chain.size > 100) break
+        }
+
+        return chain
+    }
+
+    /**
+     * Find all interfaces implemented by the given class, including inherited ones.
+     *
+     * @param fqcn The fully qualified class name
+     * @return Set of interface FQCNs (transitive closure)
+     */
+    fun findAllInterfaces(fqcn: String): Set<String> {
+        val allInterfaces = mutableSetOf<String>()
+        val visited = mutableSetOf<String>()
+        val queue = ArrayDeque<String>()
+        queue.add(fqcn)
+
+        while (queue.isNotEmpty()) {
+            val currentFqcn = queue.removeFirst()
+            if (currentFqcn in visited) continue
+            visited.add(currentFqcn)
+
+            val classInfo = findClassByFqcn(currentFqcn) ?: continue
+
+            // Add direct interfaces
+            allInterfaces.addAll(classInfo.interfaces)
+
+            // Queue interfaces for recursive processing (interfaces can extend other interfaces)
+            queue.addAll(classInfo.interfaces.filter { it !in visited })
+
+            // Queue superclass
+            classInfo.superClass?.let { if (it !in visited) queue.add(it) }
+
+            // Safety check
+            if (visited.size > 1000) break
+        }
+
+        return allInterfaces
+    }
+
+    /**
+     * Find all inherited members from superclasses and interfaces.
+     *
+     * @param fqcn The fully qualified class name
+     * @param kinds Filter by member kinds (null = all kinds)
+     * @param visibilities Filter by visibility (null = all visibilities)
+     * @param includeSynthetic Whether to include synthetic members
+     * @return List of inherited members (excludes members declared in the class itself)
+     */
+    fun findInheritedMembers(
+        fqcn: String,
+        kinds: Set<MemberKind>? = null,
+        visibilities: Set<Visibility>? = null,
+        includeSynthetic: Boolean = false
+    ): List<MemberInfo> {
+        val inheritedMembers = mutableListOf<MemberInfo>()
+        val seenSignatures = mutableSetOf<Pair<String, String?>>() // (name, jvmDesc)
+
+        // First, get all members of the target class itself to exclude overridden methods
+        val ownMembers = findMembersByOwner(
+            ownerFqcn = fqcn,
+            kinds = null, // Get all kinds to check for overrides
+            visibilities = null, // Get all visibilities
+            includeSynthetic = includeSynthetic
+        )
+
+        // Add own member signatures to seen set so they won't be included from parent classes
+        for (member in ownMembers) {
+            val jvmDesc = when (member) {
+                is FieldInfo -> member.jvmDesc
+                is MethodInfo -> member.jvmDesc
+                is PropertyInfo -> null
+            }
+            seenSignatures.add(member.name to jvmDesc)
+        }
+
+        // Get the superclass chain
+        val superclasses = findSuperclassChain(fqcn)
+
+        // Get all interfaces
+        val interfaces = findAllInterfaces(fqcn).toList()
+
+        // Combine superclasses and interfaces, superclasses first (for proper overriding)
+        val hierarchy = superclasses + interfaces
+
+        for (ancestorFqcn in hierarchy) {
+            val members = findMembersByOwner(
+                ownerFqcn = ancestorFqcn,
+                kinds = kinds,
+                visibilities = visibilities,
+                includeSynthetic = includeSynthetic
+            )
+
+            for (member in members) {
+                // Only include public and protected members (private are not inherited)
+                if (member.visibility != Visibility.PUBLIC && member.visibility != Visibility.PROTECTED) {
+                    continue
+                }
+
+                // Skip constructors (they are not inherited)
+                if (member is MethodInfo && member.isConstructor) {
+                    continue
+                }
+
+                // Create signature for deduplication
+                val jvmDesc = when (member) {
+                    is FieldInfo -> member.jvmDesc
+                    is MethodInfo -> member.jvmDesc
+                    is PropertyInfo -> null
+                }
+                val signature = member.name to jvmDesc
+
+                // Add if not overridden (first occurrence wins, which is the closest in the hierarchy)
+                if (signature !in seenSignatures) {
+                    seenSignatures.add(signature)
+                    inheritedMembers.add(member)
+                }
+            }
+        }
+
+        return inheritedMembers
     }
 
     /**

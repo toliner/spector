@@ -97,3 +97,33 @@ data class GetMemberDetailResponse(
     val memberKind: MemberKind,
     val member: MemberInfo
 )
+
+@Serializable
+data class ClassHierarchyResponse(
+    val fqcn: String,
+    val superClass: String?,
+    val interfaces: List<String>,
+    val superclassChain: List<String>,
+    val allInterfaces: List<String>,
+    val directSubclasses: List<String>? = null
+)
+
+@Serializable
+data class ListSubclassesResponse(
+    val fqcn: String,
+    val directSubclasses: List<String>,
+    val allSubclasses: List<String>? = null
+)
+
+@Serializable
+data class ImplementationInfo(
+    val fqcn: String,
+    val kind: ClassKind,
+    val modifiers: List<ClassModifier>
+)
+
+@Serializable
+data class ListImplementationsResponse(
+    val interfaceFqcn: String,
+    val implementations: List<ImplementationInfo>
+)
