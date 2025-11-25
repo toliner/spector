@@ -201,7 +201,7 @@ src/main/kotlin/dev/toliner/spector/
 
 ## ライセンス
 
-MIT License
+Apache License 2.0
 
 ## 作者
 
