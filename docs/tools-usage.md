@@ -1,21 +1,21 @@
 # Spector Usage Guide
 
-Spector is a JVM Type Indexer that scans Java/Kotlin bytecode and provides a searchable index of classes and their members.
+Spector は Java/Kotlin バイトコードを走査し、クラスとメンバーを検索可能なインデックスとして提供する JVM Type Indexer です。
 
 ## Quick Start
 
 ### 1. Index Your Project
 
-Index the Spector project itself as an example:
+Spector 自身を例としてインデックス化します。
 
 ```bash
 ./tools/spector-index project types.db
 ```
 
-This will:
-- Build the project
-- Extract all runtime dependencies
-- Index classes and members into `types.db`
+このコマンドは以下を行います。
+- プロジェクトをビルドする
+- runtime classpath を取得する
+- クラスとメンバーを `types.db` に格納する
 
 ### 2. Start the API Server
 
@@ -23,7 +23,7 @@ This will:
 ./tools/spector-server start types.db
 ```
 
-The server will start on port 8080. You can now query the indexed types.
+サーバーは 8080 番ポートで起動します。
 
 ### 3. Query the API
 
@@ -39,6 +39,9 @@ The server will start on port 8080. You can now query the indexed types.
 
 # Get class members
 ./tools/spector-api members dev.toliner.spector.storage.TypeIndexer
+
+# Get hierarchy
+./tools/spector-api hierarchy dev.toliner.spector.storage.TypeIndexer
 ```
 
 ### 4. Stop the Server
@@ -51,7 +54,7 @@ The server will start on port 8080. You can now query the indexed types.
 
 ### spector
 
-Direct CLI interface to the Spector application.
+Spector アプリケーションへの直接 CLI です。
 
 ```bash
 ./tools/spector <command> [args...]
@@ -71,7 +74,7 @@ Example:
 
 ### spector-index
 
-High-level indexing tool with convenient presets.
+便利なプリセットを持つ高水準のインデックス作成ツールです。
 
 ```bash
 ./tools/spector-index <command> <db-path> [options]
@@ -82,181 +85,141 @@ Commands:
 - `gradle <db-path> <project-dir>` - Index a Gradle project
 - `jars <db-path> <jar-files...>` - Index specific JAR files
 - `dirs <db-path> <directories...>` - Index class directories
+- `stdlib <db-path>` - Show stdlib indexing guidance
 
 Examples:
 ```bash
-# Index Spector project
 ./tools/spector-index project types.db
-
-# Index specific JARs
 ./tools/spector-index jars types.db lib/*.jar
-
-# Index compiled classes
 ./tools/spector-index dirs types.db build/classes/kotlin/main
 ```
 
 ### spector-server
 
-Server management tool for starting, stopping, and monitoring the API server.
+API サーバーの起動、停止、確認を行う管理ツールです。
 
 ```bash
 ./tools/spector-server <command> [options]
 ```
 
 Commands:
-- `start <db-path>` - Start the server (port 8080)
+- `start <db-path>` - Start the server on port 8080
 - `stop` - Stop the server
 - `restart <db-path>` - Restart the server
 - `status` - Check server status
-- `logs` - Show server logs (follow mode)
+- `logs` - Follow the server log
 
-Examples:
-```bash
-# Start server on port 8080
-./tools/spector-server start types.db
-
-# Check status
-./tools/spector-server status
-
-# View logs
-./tools/spector-server logs
-```
-
-Server management features:
-- Background process with PID file tracking (stored in `.local/`)
-- Graceful shutdown via API
-- Log file output (stored in `.local/spector-server.log`)
-- Status checking
-
-Note: PID files and logs are stored in `.local/` directory (automatically created, excluded from git)
+ログと PID ファイルは `.local/` に保存されます。
 
 ### spector-api
 
-API client wrapper for querying the indexed types.
+インデックス済みの型情報を問い合わせる API ラッパーです。
 
 ```bash
 ./tools/spector-api <command> [options]
 ```
 
 Environment variables:
-- `SPECTOR_API_BASE` - API base URL (default: http://localhost:8080)
+- `SPECTOR_API_BASE` - API base URL (default: `http://localhost:8080`)
 
 Commands:
 - `health` - Check server health
-- `packages <package> [--recursive]` - List classes in package
+- `packages <package> [--recursive] [--kind <kind>]` - List classes in package
 - `subpackages <package>` - List subpackages
 - `members <fqcn> [options]` - List class members
+- `hierarchy <fqcn> [--include-subclasses]` - Get class hierarchy
+- `subclasses <fqcn> [--recursive]` - List subclasses
+- `implementations <fqcn>` - List interface implementations
 - `member-detail <json>` - Get detailed member information
 
 Examples:
 ```bash
-# Health check
 ./tools/spector-api health
-
-# List classes in package
-./tools/spector-api packages kotlin.collections
-
-# List classes recursively
 ./tools/spector-api packages kotlin.collections --recursive
-
-# List subpackages
-./tools/spector-api subpackages kotlin
-
-# List all members
-./tools/spector-api members java.lang.String
-
-# List only public methods
+./tools/spector-api packages kotlin.collections --kind INTERFACE
 ./tools/spector-api members java.lang.String --kind METHOD --visibility PUBLIC
-
-# Get specific member details
+./tools/spector-api members java.lang.String --kind METHOD --inherited
+./tools/spector-api hierarchy java.lang.String --include-subclasses
+./tools/spector-api subclasses java.lang.Number --recursive
+./tools/spector-api implementations java.util.List
 ./tools/spector-api member-detail '{"ownerFqcn":"java.lang.String","name":"length","jvmDesc":"()I"}'
 ```
 
 Options for `packages`:
 - `--recursive, -r` - Include subpackages
-- `--public` - Only public classes (default)
-- `--all` - All visibility levels
+- `--kind, -k <kind>` - Filter by class kind: `CLASS`, `INTERFACE`, `ENUM`, `OBJECT`, `ANNOTATION`
+- `--public` - Only public classes
+- `--all` - Include non-public classes
 
 Options for `members`:
-- `--kind, -k <kind>` - Filter by kind (FIELD, METHOD, CONSTRUCTOR, PROPERTY)
-- `--visibility, -v <vis>` - Filter by visibility (PUBLIC, PROTECTED, PRIVATE, PACKAGE)
+- `--kind, -k <kind>` - Filter by kind: `FIELD`, `METHOD`, `CONSTRUCTOR`, `PROPERTY`
+- `--visibility, -v <vis>` - Filter by visibility: `PUBLIC`, `PROTECTED`, `PRIVATE`, `PACKAGE`
 - `--synthetic` - Include synthetic members
+- `--inherited` - Include inherited members
 
 ## Complete Workflow Example
 
-Here's a complete example of indexing a project and querying it:
-
 ```bash
-# 1. Index the Spector project
 ./tools/spector-index project spector.db
-
-# 2. Start the API server
 ./tools/spector-server start spector.db
-
-# 3. Query the API
-# List all packages
 ./tools/spector-api packages dev.toliner --recursive
-
-# Check what's in the storage package
 ./tools/spector-api packages dev.toliner.spector.storage
-
-# Get members of TypeIndexer class
-./tools/spector-api members dev.toliner.spector.storage.TypeIndexer
-
-# Filter to only public methods
-./tools/spector-api members dev.toliner.spector.storage.TypeIndexer \
-  --kind METHOD --visibility PUBLIC
-
-# 4. Stop the server when done
+./tools/spector-api members dev.toliner.spector.storage.TypeIndexer --kind METHOD --visibility PUBLIC
+./tools/spector-api hierarchy dev.toliner.spector.storage.TypeIndexer
+./tools/spector-api implementations java.util.Collection
 ./tools/spector-server stop
 ```
 
 ## API Endpoints
 
-The server exposes the following REST API endpoints:
-
 ### Health Check
-```
+
+```text
 GET /health
 ```
 
 Returns server status.
 
 ### List Classes
-```
-GET /v1/packages/{packageName}/classes?recursive=false&publicOnly=true
+
+```text
+GET /v1/packages/{packageName}/classes?recursive=false&publicOnly=true&kinds=CLASS,INTERFACE
 ```
 
 Parameters:
-- `recursive` (boolean) - Include subpackages
-- `publicOnly` (boolean) - Only return public classes
-
-Returns list of classes in the package.
+- `recursive` - Include subpackages
+- `publicOnly` - Only return public classes
+- `kinds` - Comma-separated class kinds
 
 ### List Subpackages
-```
+
+```text
 GET /v1/packages/{packageName}/subpackages
 ```
 
-Returns list of direct subpackages.
+Returns direct subpackages.
 
 ### List Members
-```
-GET /v1/classes/{fqcn}/members?kind=METHOD&visibility=PUBLIC&includeSynthetic=false
+
+```text
+GET /v1/classes/{fqcn}/members?kinds=METHOD&visibility=PUBLIC&includeSynthetic=false&inherited=false
 ```
 
 Parameters:
-- `kind` (optional) - Filter by kind: FIELD, METHOD, CONSTRUCTOR, PROPERTY
-- `visibility` (optional) - Filter by visibility: PUBLIC, PROTECTED, PRIVATE, PACKAGE
-- `includeSynthetic` (boolean) - Include synthetic members
-
-Returns class members grouped by kind.
+- `kinds` - Comma-separated member kinds
+- `visibility` - Comma-separated visibility filters
+- `includeSynthetic` - Include synthetic members
+- `inherited` - Include inherited members
 
 ### Get Member Details
-```
-POST /v1/members/detail
-Content-Type: application/json
 
+```text
+POST /v1/members/detail
+```
+
+Request body:
+
+```json
 {
   "ownerFqcn": "java.lang.String",
   "name": "length",
@@ -264,54 +227,63 @@ Content-Type: application/json
 }
 ```
 
-Returns detailed information about a specific member.
+### Get Class Hierarchy
+
+```text
+GET /v1/classes/{fqcn}/hierarchy?includeSubclasses=false
+```
+
+Parameters:
+- `includeSubclasses` - Include direct subclasses
+
+### Get Subclasses
+
+```text
+GET /v1/classes/{fqcn}/subclasses?recursive=false
+```
+
+Parameters:
+- `recursive` - Include transitive subclasses
+
+### Get Interface Implementations
+
+```text
+GET /v1/interfaces/{fqcn}/implementations
+```
+
+Returns implementing classes for the given interface.
 
 ### Server Shutdown
-```
+
+```text
 POST /shutdown
 ```
 
-Gracefully shuts down the server (only from localhost).
-
-## Performance Tips
-
-1. **Use transactions for bulk indexing** - The indexer automatically uses transactions for better performance.
-
-2. **Indexing is fast** - With the optimizations:
-   - Kotlin stdlib (~300 classes): ~1 second
-   - Java stdlib (~4000 classes): ~5-10 seconds
-
-3. **Sequential vs Parallel** - Sequential mode (`parallel=false`) is faster due to transaction batching.
-
-4. **Database location** - For best performance, use a local SSD. The SQLite database uses WAL mode for better concurrent access.
-
-5. **Incremental indexing** - The indexer uses `INSERT OR REPLACE`, so you can re-index without clearing the database.
+Gracefully shuts down the server from localhost only.
 
 ## Troubleshooting
 
 ### Server won't start
-Check logs:
+
 ```bash
 ./tools/spector-server logs
 ```
 
 Common issues:
-- Port already in use
-- Database file not readable
-- Insufficient permissions
+- Port 8080 is already in use
+- Database file cannot be read
+- A stale PID file remains in `.local/`
 
 ### API returns empty results
-- Verify data was indexed: Check database file size
-- Verify server is using correct database: `./tools/spector-server status`
-- Check package name spelling: Package names are case-sensitive
 
-### Indexing is slow
-- Check disk I/O - indexing is I/O intensive
-- Verify SQLite optimizations are working (WAL mode, transactions)
-- Monitor with: `./tools/spector-index project types.db` and watch progress messages
+- Confirm indexing completed successfully
+- Confirm the server is using the expected database
+- Check package and class names carefully because they are case-sensitive
 
 ### jq not found warning
-Install `jq` for pretty-printed JSON output:
+
+`jq` があると `tools/spector-api` の出力が整形されます。
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install jq
@@ -326,57 +298,14 @@ sudo dnf install jq
 ## Advanced Usage
 
 ### Custom API Base URL
+
 ```bash
 export SPECTOR_API_BASE=http://remote-server:8080
 ./tools/spector-api health
 ```
 
-### Direct curl usage
-```bash
-# Get classes
-curl "http://localhost:8080/v1/packages/kotlin.collections/classes?recursive=true" | jq '.'
-
-# Get members
-curl "http://localhost:8080/v1/classes/java.lang.String/members" | jq '.'
-```
-
-### Programmatic usage
-You can also use the Gradle application plugin directly:
+### Executable Workflow Smoke Test
 
 ```bash
-./gradlew run --args="serve types.db 8080"
-./gradlew run --args="index types.db build/classes/kotlin/main"
+./tools/smoke-user-workflow /tmp/spector-workflow.db
 ```
-
-## Database Schema
-
-The SQLite database contains two main tables:
-
-### types table
-- `fqcn` (PRIMARY KEY) - Fully qualified class name
-- `package_name` - Package name (indexed)
-- `kind` - Class kind (CLASS, INTERFACE, ENUM, etc.)
-- `modifiers` - Class modifiers (PUBLIC, FINAL, etc.)
-- `super_class` - Superclass FQCN
-- `interfaces` - Implemented interfaces
-- `annotations` - Class annotations
-- `kotlin_info` - Kotlin-specific metadata
-- `data` - Full class information as JSON
-
-### members table
-- `id` (PRIMARY KEY) - Auto-increment ID
-- `owner_fqcn` - Owning class FQCN (indexed)
-- `name` - Member name
-- `kind` - Member kind (FIELD, METHOD, CONSTRUCTOR, PROPERTY)
-- `jvm_desc` - JVM descriptor
-- `visibility` - Visibility (PUBLIC, PROTECTED, PRIVATE, PACKAGE)
-- `static` - Is static member
-- `data` - Full member information as JSON
-
-## Contributing
-
-When adding new tools:
-1. Create shell script in `tools/`
-2. Make it executable: `chmod +x tools/<script-name>`
-3. Add documentation to this file
-4. Follow the existing naming convention: `spector-<purpose>`

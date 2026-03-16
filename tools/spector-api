@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spector API Client Wrapper
 
-set -e
+set -euo pipefail
 
 API_BASE="${SPECTOR_API_BASE:-http://localhost:8080}"
 
@@ -20,13 +20,17 @@ Environment:
 
 Commands:
     health                                    Check server health
-    packages <package> [--recursive]          List classes in package
+    packages <package> [--recursive] [--kind K] List classes in package
     subpackages <package>                     List subpackages
     members <fqcn> [--kind K] [--visibility V] List class members
+    hierarchy <fqcn> [--include-subclasses]   Get class hierarchy
+    subclasses <fqcn> [--recursive]           List subclasses
+    implementations <fqcn>                    List interface implementations
     member-detail <json>                      Get member details (JSON input)
 
 Options for 'packages':
     --recursive, -r         Include subpackages
+    --kind, -k <kind>       Filter by class kind (CLASS, INTERFACE, ENUM, OBJECT, ANNOTATION)
     --public                Only public classes (default)
     --all                   All visibility levels
 
@@ -34,6 +38,7 @@ Options for 'members':
     --kind, -k <kind>       Filter by kind (FIELD, METHOD, CONSTRUCTOR, PROPERTY)
     --visibility, -v <vis>  Filter by visibility (PUBLIC, PROTECTED, PRIVATE, PACKAGE)
     --synthetic             Include synthetic members
+    --inherited             Include inherited members
 
 Examples:
     # Check server health
@@ -53,6 +58,15 @@ Examples:
 
     # List only public methods
     spector-api members java.lang.String --kind METHOD --visibility PUBLIC
+
+    # Get class hierarchy including direct subclasses
+    spector-api hierarchy java.lang.String --include-subclasses
+
+    # List all subclasses recursively
+    spector-api subclasses java.lang.Number --recursive
+
+    # List implementations of an interface
+    spector-api implementations java.util.List
 
     # Get member details
     spector-api member-detail '{"ownerFqcn":"java.lang.String","name":"length","jvmDesc":"()I"}'
@@ -78,12 +92,17 @@ api_packages() {
 
     local recursive="false"
     local public_only="true"
+    local kinds=()
 
     while [ $# -gt 0 ]; do
         case "$1" in
             --recursive|-r)
                 recursive="true"
                 shift
+                ;;
+            --kind|-k)
+                kinds+=("$2")
+                shift 2
                 ;;
             --public)
                 public_only="true"
@@ -101,6 +120,11 @@ api_packages() {
     done
 
     local url="${API_BASE}/v1/packages/${package}/classes?recursive=${recursive}&publicOnly=${public_only}"
+    if [ "${#kinds[@]}" -gt 0 ]; then
+        local joined_kinds
+        joined_kinds=$(IFS=,; echo "${kinds[*]}")
+        url="${url}&kinds=${joined_kinds}"
+    fi
     curl -s "$url" | format_output
 }
 
@@ -126,19 +150,27 @@ api_members() {
     fi
 
     local url="${API_BASE}/v1/classes/${fqcn}/members?"
+    local kinds=()
+    local visibilities=()
+    local include_synthetic="false"
+    local inherited="false"
 
     while [ $# -gt 0 ]; do
         case "$1" in
             --kind|-k)
-                url="${url}&kind=$2"
+                kinds+=("$2")
                 shift 2
                 ;;
             --visibility|-v)
-                url="${url}&visibility=$2"
+                visibilities+=("$2")
                 shift 2
                 ;;
             --synthetic)
-                url="${url}&includeSynthetic=true"
+                include_synthetic="true"
+                shift
+                ;;
+            --inherited)
+                inherited="true"
                 shift
                 ;;
             *)
@@ -148,6 +180,87 @@ api_members() {
         esac
     done
 
+    if [ "${#kinds[@]}" -gt 0 ]; then
+        local joined_kinds
+        joined_kinds=$(IFS=,; echo "${kinds[*]}")
+        url="${url}&kinds=${joined_kinds}"
+    fi
+
+    if [ "${#visibilities[@]}" -gt 0 ]; then
+        local joined_visibilities
+        joined_visibilities=$(IFS=,; echo "${visibilities[*]}")
+        url="${url}&visibility=${joined_visibilities}"
+    fi
+
+    url="${url}&includeSynthetic=${include_synthetic}&inherited=${inherited}"
+    curl -s "$url" | format_output
+}
+
+api_hierarchy() {
+    local fqcn="$1"
+    shift
+
+    if [ -z "$fqcn" ]; then
+        echo "Error: class FQCN is required"
+        usage
+    fi
+
+    local include_subclasses="false"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --include-subclasses)
+                include_subclasses="true"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                usage
+                ;;
+        esac
+    done
+
+    local url="${API_BASE}/v1/classes/${fqcn}/hierarchy?includeSubclasses=${include_subclasses}"
+    curl -s "$url" | format_output
+}
+
+api_subclasses() {
+    local fqcn="$1"
+    shift
+
+    if [ -z "$fqcn" ]; then
+        echo "Error: class FQCN is required"
+        usage
+    fi
+
+    local recursive="false"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --recursive|-r)
+                recursive="true"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                usage
+                ;;
+        esac
+    done
+
+    local url="${API_BASE}/v1/classes/${fqcn}/subclasses?recursive=${recursive}"
+    curl -s "$url" | format_output
+}
+
+api_implementations() {
+    local fqcn="$1"
+
+    if [ -z "$fqcn" ]; then
+        echo "Error: interface FQCN is required"
+        usage
+    fi
+
+    local url="${API_BASE}/v1/interfaces/${fqcn}/implementations"
     curl -s "$url" | format_output
 }
 
@@ -194,6 +307,18 @@ case "${1:-}" in
     members|mem)
         shift
         api_members "$@"
+        ;;
+    hierarchy)
+        shift
+        api_hierarchy "$@"
+        ;;
+    subclasses)
+        shift
+        api_subclasses "$@"
+        ;;
+    implementations|impl)
+        shift
+        api_implementations "$@"
         ;;
     member-detail|detail)
         api_member_detail "$2"
