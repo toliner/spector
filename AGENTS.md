@@ -24,6 +24,9 @@ Recent history favors short, imperative commit subjects such as `Fix spector-ser
 ## Security & Configuration Tips
 Do not commit generated SQLite databases, PID files, or local runtime artifacts. Prefer wrapper scripts and `./gradlew` over machine-specific tooling, and validate any new API surface with tests before merging.
 
+# ExecPlans
+When writing complex features or significant refactors, use an ExecPlan (as described in .agent/PLANS.md) from design to implementation.
+
 ## Language
 Japanese for documentation and response to user.
 
