@@ -2,6 +2,7 @@ package dev.toliner.spector
 
 import dev.toliner.spector.api.ApiServer
 import dev.toliner.spector.indexer.ClasspathIndexer
+import dev.toliner.spector.indexer.GradleRuntimeClasspathResolver
 import dev.toliner.spector.indexer.JavaStdLibIndexer
 import dev.toliner.spector.storage.TypeIndexer
 import org.slf4j.LoggerFactory
@@ -25,19 +26,22 @@ fun main(args: Array<String>) {
             val dbPath = args[1]
             val classpathEntries = args.drop(2).map { File(it) }
 
-            logger.info("Starting indexing to database: $dbPath")
-            logger.info("Classpath entries: ${classpathEntries.size}")
+            runIndexCommand(dbPath, classpathEntries, logger)
+        }
 
-            TypeIndexer(dbPath).use { indexer ->
-                val classpathIndexer = ClasspathIndexer(indexer)
-                classpathIndexer.indexClasspath(classpathEntries, parallel = false)
-
-                logger.info("Indexing Java standard library...")
-                val javaStdLibIndexer = JavaStdLibIndexer(indexer)
-                javaStdLibIndexer.indexJavaStdLib(parallel = false)
+        "index-gradle" -> {
+            if (args.size < 3) {
+                println("Usage: spector index-gradle <db-path> <gradle-project-dir>")
+                return
             }
 
-            logger.info("Indexing complete!")
+            val dbPath = args[1]
+            val projectDir = File(args[2])
+            val resolver = GradleRuntimeClasspathResolver()
+            val classpathEntries = resolver.resolve(projectDir)
+
+            logger.info("Resolved runtime classpath for ${projectDir.absolutePath}")
+            runIndexCommand(dbPath, classpathEntries, logger)
         }
 
         "serve" -> {
@@ -109,6 +113,9 @@ fun main(args: Array<String>) {
                   index <db-path> <classpath-entries...>
                       Index the given classpath into the database
 
+                  index-gradle <db-path> <gradle-project-dir>
+                      Resolve a Gradle JVM project's runtime classpath and index it
+
                   serve <db-path> [port]
                       Start the API server using an existing database
                       Default port: 8080
@@ -122,6 +129,9 @@ fun main(args: Array<String>) {
                 Examples:
                   # Index a project's runtime classpath
                   spector index types.db $(./gradlew -q printRuntimeCp | tail -1 | tr ':' ' ')
+
+                  # Index another Gradle project without editing its build script
+                  spector index-gradle types.db /path/to/gradle-project
 
                   # Start the API server
                   spector serve types.db 8080
@@ -137,4 +147,24 @@ fun main(args: Array<String>) {
             println("Run 'spector help' for usage information")
         }
     }
+}
+
+private fun runIndexCommand(
+    dbPath: String,
+    classpathEntries: List<File>,
+    logger: org.slf4j.Logger
+) {
+    logger.info("Starting indexing to database: $dbPath")
+    logger.info("Classpath entries: ${classpathEntries.size}")
+
+    TypeIndexer(dbPath).use { indexer ->
+        val classpathIndexer = ClasspathIndexer(indexer)
+        classpathIndexer.indexClasspath(classpathEntries, parallel = false)
+
+        logger.info("Indexing Java standard library...")
+        val javaStdLibIndexer = JavaStdLibIndexer(indexer)
+        javaStdLibIndexer.indexJavaStdLib(parallel = false)
+    }
+
+    logger.info("Indexing complete!")
 }

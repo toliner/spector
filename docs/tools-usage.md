@@ -82,7 +82,7 @@ Example:
 
 Commands:
 - `project <db-path>` - Index this Spector project
-- `gradle <db-path> <project-dir>` - Index a Gradle project
+- `gradle <db-path> <project-dir>` - Index a Gradle JVM project without editing its build script
 - `jars <db-path> <jar-files...>` - Index specific JAR files
 - `dirs <db-path> <directories...>` - Index class directories
 - `stdlib <db-path>` - Show stdlib indexing guidance
@@ -90,9 +90,14 @@ Commands:
 Examples:
 ```bash
 ./tools/spector-index project types.db
+./tools/spector-index gradle types.db /path/to/gradle-project
 ./tools/spector-index jars types.db lib/*.jar
 ./tools/spector-index dirs types.db build/classes/kotlin/main
 ```
+
+`gradle` コマンドは Gradle Tooling API を使って対象プロジェクトの `main` 実行時クラスパスを解決します。対象プロジェクトの `build.gradle(.kts)` を編集したり、`printRuntimeCp` のような補助タスクを追加したりする必要はありません。
+
+対応範囲は標準的な JVM Gradle プロジェクトです。具体的には `sourceSets.main.runtimeClasspath` か `runtimeClasspath` を公開しているプロジェクトルートを想定しています。実行時には `classes` タスクがあれば先に実行してからクラスパスを収集するため、依存 JAR だけでなくビルド済みの自プロジェクトクラスもインデックス対象になります。
 
 ### spector-server
 
