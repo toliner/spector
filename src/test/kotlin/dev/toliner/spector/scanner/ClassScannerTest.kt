@@ -1,12 +1,14 @@
 package dev.toliner.spector.scanner
 
+import dev.toliner.spector.fixtures.GenericSignatureFixtures
 import dev.toliner.spector.model.ClassKind
 import dev.toliner.spector.model.ClassModifier
+import dev.toliner.spector.model.TypeKind
+import dev.toliner.spector.model.WildcardKind
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import java.io.File
 
 class ClassScannerTest : FunSpec({
 
@@ -79,9 +81,7 @@ class ClassScannerTest : FunSpec({
     }
 
     context("Generics and type parameters") {
-        test("should scan generic classes (type parameters extraction not yet implemented)") {
-            // Tests that generic classes can be scanned
-            // Note: Type parameter extraction from generic signatures is not yet implemented
+        test("should scan generic classes with type parameters") {
             val mapClassBytes = Map::class.java.getResourceAsStream("/java/util/Map.class")!!.readBytes()
 
             val scanner = ClassScanner()
@@ -90,13 +90,10 @@ class ClassScannerTest : FunSpec({
             result shouldNotBe null
             result!!.classInfo.fqcn shouldBe "java.util.Map"
             result.classInfo.kind shouldBe ClassKind.INTERFACE
-            // TODO: Implement type parameter extraction from generic signatures
-            // result.typeParameters.size shouldBe 2  // Map has type parameters K and V
+            result.classInfo.typeParameters.map { it.name } shouldBe listOf("K", "V")
         }
 
-        test("should scan generic classes with bounds (type parameters extraction not yet implemented)") {
-            // Tests that generic classes with bounded type parameters can be scanned
-            // Note: Type parameter extraction is not yet implemented
+        test("should scan generic classes with bounds") {
             val classClassBytes = Class::class.java.getResourceAsStream("/java/lang/Class.class")!!.readBytes()
 
             val scanner = ClassScanner()
@@ -104,8 +101,61 @@ class ClassScannerTest : FunSpec({
 
             result shouldNotBe null
             result!!.classInfo.fqcn shouldBe "java.lang.Class"
-            // TODO: Implement type parameter extraction
-            // result.typeParameters.size shouldBe 1  // Class has one type parameter T
+            result.classInfo.typeParameters.map { it.name } shouldBe listOf("T")
+            result.classInfo.typeParameters.single().bounds.single() shouldBe
+                dev.toliner.spector.model.TypeRef.classType("java.lang.Object")
+        }
+
+        test("should preserve generic field and method signatures from fixture class") {
+            val fixtureClassBytes = GenericSignatureFixtures::class.java
+                .getResourceAsStream("/dev/toliner/spector/fixtures/GenericSignatureFixtures.class")!!
+                .readBytes()
+
+            val scanner = ClassScanner()
+            val result = scanner.scanClass(fixtureClassBytes)
+
+            result shouldNotBe null
+            result!!.classInfo.typeParameters.map { it.name } shouldBe listOf("T")
+            result.classInfo.typeParameters.single().bounds.map { it.fqcn } shouldBe listOf(
+                "java.lang.Number",
+                "java.lang.Comparable"
+            )
+
+            val field = result.fields.single { it.name == "field" }
+            field.type.kind shouldBe TypeKind.CLASS
+            field.type.fqcn shouldBe "java.util.Map"
+            field.type.args[0].fqcn shouldBe "java.lang.String"
+            field.type.args[1].fqcn shouldBe "java.util.List"
+            field.type.args[1].args.single().wildcard shouldBe WildcardKind.OUT
+            field.type.args[1].args.single().bounds.single().fqcn shouldBe "java.lang.Number"
+
+            val method = result.methods.single { it.name == "transform" }
+            method.typeParameters.map { it.name } shouldBe listOf("E")
+            method.typeParameters.single().bounds.single().fqcn shouldBe "java.lang.CharSequence"
+            method.returnType.fqcn shouldBe "java.util.List"
+            method.returnType.args.single().kind shouldBe TypeKind.TYPEVAR
+            method.returnType.args.single().fqcn shouldBe "E"
+            method.parameters.single().type.fqcn shouldBe "java.util.List"
+            method.parameters.single().type.args.single().wildcard shouldBe WildcardKind.IN
+            method.parameters.single().type.args.single().bounds.single().fqcn shouldBe "T"
+            method.throws.single().fqcn shouldBe "java.io.IOException"
+        }
+
+        test("should preserve generic constructor parameters after synthetic outer-instance arguments") {
+            val innerClassBytes = GenericSignatureFixtures.Inner::class.java
+                .getResourceAsStream("/dev/toliner/spector/fixtures/GenericSignatureFixtures\$Inner.class")!!
+                .readBytes()
+
+            val scanner = ClassScanner()
+            val result = scanner.scanClass(innerClassBytes)
+
+            result shouldNotBe null
+            val constructor = result!!.methods.single { it.isConstructor }
+            constructor.parameters.size shouldBe 2
+            constructor.parameters[0].type.fqcn shouldBe "dev.toliner.spector.fixtures.GenericSignatureFixtures"
+            constructor.parameters[1].type.fqcn shouldBe "java.util.List"
+            constructor.parameters[1].type.args.single().kind shouldBe TypeKind.TYPEVAR
+            constructor.parameters[1].type.args.single().fqcn shouldBe "T"
         }
     }
 

@@ -870,4 +870,83 @@ class TypeIndexerTest : FunSpec({
             }
         }
     }
+
+    context("Generic signature persistence") {
+        test("should round-trip generic class and method information through SQLite") {
+            val tempDb = Files.createTempFile("test-indexer", ".db").toFile()
+            tempDb.deleteOnExit()
+
+            TypeIndexer(tempDb.absolutePath).use { indexer ->
+                indexer.indexClass(
+                    ClassInfo(
+                        fqcn = "com.example.GenericBox",
+                        packageName = "com.example",
+                        kind = ClassKind.CLASS,
+                        modifiers = setOf(ClassModifier.PUBLIC),
+                        superClass = null,
+                        interfaces = emptyList(),
+                        typeParameters = listOf(
+                            TypeParameter(
+                                name = "T",
+                                bounds = listOf(TypeRef.classType("java.lang.Number"))
+                            )
+                        ),
+                        annotations = emptyList(),
+                        kotlin = null
+                    )
+                )
+
+                indexer.indexMember(
+                    MethodInfo(
+                        ownerFqcn = "com.example.GenericBox",
+                        name = "map",
+                        visibility = Visibility.PUBLIC,
+                        static = false,
+                        annotations = emptyList(),
+                        jvmDesc = "(Ljava/util/List;)Ljava/util/List;",
+                        returnType = TypeRef.classType(
+                            "java.util.List",
+                            args = listOf(TypeRef.typeVar("R"))
+                        ),
+                        parameters = listOf(
+                            ParameterInfo(
+                                name = "values",
+                                type = TypeRef.classType(
+                                    "java.util.List",
+                                    args = listOf(TypeRef.wildcard(WildcardKind.OUT, TypeRef.typeVar("T")))
+                                )
+                            )
+                        ),
+                        typeParameters = listOf(
+                            TypeParameter(
+                                name = "R",
+                                bounds = listOf(TypeRef.classType("java.lang.Object"))
+                            )
+                        ),
+                        throws = listOf(TypeRef.classType("java.io.IOException")),
+                        isConstructor = false,
+                        isSynthetic = false,
+                        isBridge = false,
+                        isFinal = false,
+                        isAbstract = false,
+                        kotlin = null
+                    )
+                )
+
+                val classInfo = indexer.findClassByFqcn("com.example.GenericBox")
+                classInfo.shouldNotBeNull()
+                classInfo.typeParameters.map { it.name } shouldBe listOf("T")
+                classInfo.typeParameters.single().bounds.single().fqcn shouldBe "java.lang.Number"
+
+                val method = indexer.findMembersByOwner("com.example.GenericBox")
+                    .filterIsInstance<MethodInfo>()
+                    .single()
+                method.typeParameters.map { it.name } shouldBe listOf("R")
+                method.returnType.args.single().fqcn shouldBe "R"
+                method.parameters.single().type.args.single().wildcard shouldBe WildcardKind.OUT
+                method.parameters.single().type.args.single().bounds.single().fqcn shouldBe "T"
+                method.throws.single().fqcn shouldBe "java.io.IOException"
+            }
+        }
+    }
 })

@@ -80,8 +80,9 @@ class ClassScanner {
             val isSynthetic = (access and ACC_SYNTHETIC) != 0
             val isEnumConstant = (access and ACC_ENUM) != 0
 
-            // Parse type from descriptor
-            val type = parseDescriptorToTypeRef(descriptor)
+            val type = signature
+                ?.let(GenericSignatureParser::parseFieldSignature)
+                ?: parseDescriptorToTypeRef(descriptor)
 
             fields.add(
                 FieldInfo(
@@ -115,17 +116,25 @@ class ClassScanner {
             val isBridge = (access and ACC_BRIDGE) != 0
             val isConstructor = name == "<init>"
 
-            // Parse method descriptor
             val methodType = Type.getType(descriptor)
-            val returnType = parseTypeToTypeRef(methodType.returnType)
-            val parameters = methodType.argumentTypes.mapIndexed { index, type ->
+            val signatureInfo = signature?.let(GenericSignatureParser::parseMethodSignature)
+            val descriptorReturnType = parseTypeToTypeRef(methodType.returnType)
+            val descriptorParameters = methodType.argumentTypes.map { type ->
                 ParameterInfo(
                     name = null, // We don't have parameter names without debug info
                     type = parseTypeToTypeRef(type)
                 )
             }
+            val returnType = signatureInfo?.returnType ?: descriptorReturnType
+            val parameters = mergeParameterTypes(
+                descriptorParameters = descriptorParameters,
+                signatureParameterTypes = signatureInfo?.parameterTypes,
+                isConstructor = isConstructor
+            )
 
-            val throwsTypes = exceptions?.map { TypeRef.classType(internalNameToFqcn(it)) } ?: emptyList()
+            val throwsTypes = signatureInfo?.throwsTypes?.takeIf { it.isNotEmpty() }
+                ?: exceptions?.map { TypeRef.classType(internalNameToFqcn(it)) }
+                ?: emptyList()
 
             methods.add(
                 MethodInfo(
@@ -137,6 +146,7 @@ class ClassScanner {
                     jvmDesc = descriptor,
                     returnType = returnType,
                     parameters = parameters,
+                    typeParameters = signatureInfo?.typeParameters ?: emptyList(),
                     throws = throwsTypes,
                     isConstructor = isConstructor,
                     isSynthetic = isSynthetic,
@@ -153,6 +163,7 @@ class ClassScanner {
             val packageName = fqcn.substringBeforeLast('.', "")
             val kind = determineClassKind(access)
             val modifiers = accessToModifiers(access)
+            val parsedClassSignature = signature?.let(GenericSignatureParser::parseClassSignature)
 
             val superClass = superName?.let { internalNameToFqcn(it) }?.takeIf { it != "java.lang.Object" }
             val interfaces = interfaceNames.map { internalNameToFqcn(it) }
@@ -164,6 +175,7 @@ class ClassScanner {
                 modifiers = modifiers,
                 superClass = superClass,
                 interfaces = interfaces,
+                typeParameters = parsedClassSignature?.typeParameters ?: emptyList(),
                 annotations = annotations,
                 kotlin = if (isKotlinClass) KotlinClassInfo() else null
             )
@@ -212,6 +224,36 @@ class ClassScanner {
 
         private fun internalNameToFqcn(internalName: String): String {
             return internalName.replace('/', '.')
+        }
+
+        private fun mergeParameterTypes(
+            descriptorParameters: List<ParameterInfo>,
+            signatureParameterTypes: List<TypeRef>?,
+            isConstructor: Boolean
+        ): List<ParameterInfo> {
+            val signatureTypes = signatureParameterTypes ?: return descriptorParameters
+
+            if (signatureTypes.size == descriptorParameters.size) {
+                return signatureTypes.map { type ->
+                    ParameterInfo(
+                        name = null,
+                        type = type
+                    )
+                }
+            }
+
+            if (isConstructor && signatureTypes.size < descriptorParameters.size) {
+                val syntheticPrefixCount = descriptorParameters.size - signatureTypes.size
+                return descriptorParameters.mapIndexed { index, parameter ->
+                    if (index < syntheticPrefixCount) {
+                        parameter
+                    } else {
+                        parameter.copy(type = signatureTypes[index - syntheticPrefixCount])
+                    }
+                }
+            }
+
+            return descriptorParameters
         }
 
         private fun parseDescriptorToTypeRef(descriptor: String): TypeRef {
